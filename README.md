@@ -6,7 +6,6 @@ The gTRCA for Python project is an implementation of the Group Task-Related Comp
 
 - A `gTRCA()` class that accepts a list of MNE.Epochs() objects and returns an object containing a specified number of components.
 - A function to create surrogate data (trial or subject-based shifting).
-...
 
 
 ## Dependencies
