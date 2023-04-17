@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.io import loadmat
 import scipy
+import copy as cp
 
 # %% Functions
 def print_progress_bar(iteration, total, fill = '•', length=40, autosize = False):
@@ -37,12 +38,50 @@ def print_progress_bar(iteration, total, fill = '•', length=40, autosize = Fal
     if iteration == total:
         print()
 
+# Create 1 Surrogates (chose what kind)
+def create_surrogate(epochs, mode='trial', minjitter=0, maxjitter='nsamples'):
+    # Fetching Epochs
+    data = cp.deepcopy(epochs)
+    infos = [sub.info for sub in data]
+    times = data[0].times
+
+    # Checking if all times match
+    for sub in data:
+        if np.any(sub.times != times):
+            raise Exception('Please use same time window and sampling frequency for all subjects')
+    
+    # Setting max jitter
+    if maxjitter == 'nsamples':
+        maxjitter = len(times)
+    elif type(maxjitter)!=int:
+        raise Exception("Please use a int as maxjitter of default 'nsamples'")
+
+    # Fetching data
+    data = [sub.get_data() for sub in data]
+
+    # Making Surrogate
+    if mode == 'trial':
+        for sub in data:
+            ntrials=np.shape(sub)[0]
+            jitters=np.random.randint(low=minjitter,high=maxjitter,size=ntrials)
+            for k in range(ntrials):
+                jitter=jitters[k]
+                sub[k,:,:] = np.roll(sub[k,:,:], jitter, axis=1)
+    elif mode == 'subject':
+        nsubs = len(data)
+        jitters = np.random.randint(low=minjitter,high=maxjitter,size=nsubs)
+        for i in range(len(data)):
+            data[i] = np.roll(data[i], jitters[i], axis=2)
+    surrogate = [mne.EpochsArray(sub, infos[i],tmin=times[0],verbose=False) for i,sub in enumerate(data)]
+    return surrogate
+
 # %% Defining Class
 class gTRCA() :
-    def __init__(self, data, ncomps=5, time_window=None,
-                 protocol_info=None, reg=10**5, normalize_q=True,
-                 show_progress=True, verbose=True):
+    def __init__(self, data, ncomps=5, protocol_info=None,
+                  reg=10**5, norm_q=True, norm_y=True,
+                  show_progress=True, verbose=True):
         self.verbose=verbose
+        self.norm_y=norm_y
         self.show_progress = show_progress
         self.nsubjects = len(data)
         self.mne_infos = [sub.info for sub in data]
@@ -53,7 +92,7 @@ class gTRCA() :
                 raise Exception('Please use Epochs with same Time Window and sampling frequency.')
         self.tmin, self.tmax = self.times[0], self.times[-1]
         self.tau = len(self.times)
-        epochs = self.group_to_array(data, normalize_q)
+        epochs = self.group_to_array(data, norm_q)
         self.u, self.v, self.q0, self.q = self.calculate_u_q(epochs)
         self.s = self.calculate_s(epochs)
         inv_q, self.Svd = self.apply_inverse_reg(reg)
@@ -61,7 +100,7 @@ class gTRCA() :
         if ncomps == 'all':
             ncomps = len(self.rho)
         self.ncomps = ncomps
-        self.ydata, self.maps, self.w = self.project_results(epochs, components=self.ncomps)
+        self.ydata, self.maps, self.w = self.project_results(epochs, components=self.ncomps, norm_y=self.norm_y)
         self.fix_ydata_orientation()
 
     def group_to_array(self, data, normalize_q=True):
@@ -174,7 +213,7 @@ class gTRCA() :
         vecs=np.real(vecs)
         return rho, vecs
 
-    def project_results(self, epochs=None, components=5):       
+    def project_results(self, epochs=None, components=5, norm_y=True):       
         if self.verbose:
             print('Projecting Results...')
         nsubs = self.nsubjects
@@ -200,12 +239,11 @@ class gTRCA() :
                         ydata[i][c,k,:] = w[i][c,:].T @ ep[k,:,:]
                 
                 # Normalization
-                for c in range(components):
-                    cmean = np.mean(np.mean(ydata[i][c,:,:],axis=0)) #
-                    cstd = np.std(np.mean(ydata[i][c,:,:], axis=0)) #
-                    ydata[i][c,:,:] = (ydata[i][c,:,:]-cmean)/cstd #
-                    # for k in range(ntrials):
-                    #     ydata[i][c,k,:] = (ydata[i][c,k,:]-np.mean(ydata[i][c,k,:]))/np.std(ydata[i][c,k,:])
+                if norm_y:
+                    for c in range(components):
+                        cmean = np.mean(np.mean(ydata[i][c,:,:],axis=0)) #
+                        cstd = np.std(np.mean(ydata[i][c,:,:], axis=0)) #
+                        ydata[i][c,:,:] = (ydata[i][c,:,:]-cmean)/cstd #
 
                 # Creting Scalp Maps
                 y1[i] = np.zeros([components, tau])
@@ -274,6 +312,7 @@ class gTRCA() :
                     self.ydata[i][c,:,:] = peak_sig*self.ydata[i][c,:,:]
                     self.maps[i][c,:] = peak_sig*self.maps[i][c,:]
                     self.w[i][c,:] = peak_sig*self.w[i][c,:]
+                # ADD SECOND FIX: BASED ON TEMPORAL CORRELATION
             return
 
     def make_evoked(self, comp=None, subject=None):

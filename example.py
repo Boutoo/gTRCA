@@ -2,7 +2,7 @@
 import mne
 import matplotlib.pyplot as plt
 import numpy as np
-from gtrca import gTRCA
+from gtrca import gTRCA, create_surrogate
 from scipy.io import loadmat
 
 PATH = "C:/Users/bruno/Documents/NNCLab/Data/SHAM/"
@@ -91,4 +91,31 @@ gtrca.plot_maps(0,0)
 gtrca.plot_maps(0,1)
 mne.viz.plot_topomap(results[3][0], new_sub_pmtms.info);
 mne.viz.plot_topomap(results2[3][0], new_sub_sham.info);
-# %%
+
+# %% Testing Surrogate
+times = epochs[0].times
+nsubs = len(epochs)
+sub_range = np.arange(nsubs)
+trial_surr = create_surrogate(epochs, mode='trial')
+subject_surr = create_surrogate(epochs, mode='subject')
+
+def get_imagesc(epochs):
+    nsubs = len(epochs)
+    nchs = [len(sub.info['ch_names']) for sub in epochs]
+    ch_cumsum = np.concatenate([np.zeros(1),np.cumsum(nchs)])
+    times = epochs[0].times
+    image = np.zeros([np.sum(nchs), len(times)])
+    for i,sub in enumerate(epochs):
+        image[int(ch_cumsum[i]):int(ch_cumsum[i+1]),:] = sub.average().get_data()
+    return image
+
+fig, axs = plt.subplots(3,1,dpi=250,sharex=True,layout='constrained');
+axs[0].set_title('Epochs')
+axs[0].imshow(get_imagesc(epochs), cmap='jet', aspect='auto', interpolation='none', extent=(times[0], times[-1], nsubs-0.5, -0.5));
+axs[1].set_title('Trial-based Shifting')
+axs[1].imshow(get_imagesc(trial_surr), cmap='jet', aspect='auto', interpolation='none', extent=(times[0], times[-1], nsubs-0.5, -0.5));
+axs[2].set_title('Subject-based Shifting')
+axs[2].imshow(get_imagesc(subject_surr), cmap='jet', aspect='auto', interpolation='none', extent=(times[0], times[-1], nsubs-0.5, -0.5));
+
+for ax in axs:
+    ax.set_yticks(sub_range)
