@@ -5,33 +5,21 @@ import matplotlib.pyplot as plt
 from scipy.io import loadmat
 import scipy
 import copy as cp
-import shutil
 
 # %% Functions
-def print_progress_bar(iteration, total, fill = '•', length=40, autosize = False):
+def print_progress_bar(iteration, total, fill = '•', length=40):
     """
-    Call in a loop to create terminal progress bar (Original Fill █)
+    Create a progress bar to display the progress of a loop.
 
     Args:
         iteration  (Int): current iteration (Required)
         total (int): total iterations (Required)
         fill (str): bar fill character (Optional)
         length (100): character length of bar (Optional)
-        autosize (bool): automatically resize the length of the progress bar
         to the terminal window (Optional)
-
-    Examples:
-        >>> print_progres_bar(0,10)
-        >>> for i in range(10):
-        >>>     print_progress_bar(i,10)
-        ∙ |••••••••••∙∙∙∙∙∙∙∙| 50% ∙
-
     """
     percent = ("{0:." + "0" + "f}").format(100 * (iteration / float(total)))
     styling = '%s |%s| %s%% %s' % ('∙', fill, percent, '∙')
-    if autosize:
-        cols, _ = shutil.get_terminal_size(fallback = (length, 1))
-        length = cols - len(styling)
     filled_length = int(length * iteration // total)
     progress_bar = fill * filled_length + '-' * (length - filled_length)
     print('\r%s' % styling.replace(fill, progress_bar), end = '\r')
@@ -41,6 +29,23 @@ def print_progress_bar(iteration, total, fill = '•', length=40, autosize = Fal
 
 # Create 1 Surrogates (chose what kind)
 def create_surrogate(epochs, mode='trial', minjitter=0, maxjitter='nsamples'):
+    """ Creates a surrogate of the data by shifting the data in time. Data must be a list of mne.Epochs(...) format.
+
+    Args:
+        epochs (list): List of mne.Epochs(...) to create a surrogate from.
+        mode ('trial' or 'subject', optional): What mode to use: trial or subject-based shifting. Defaults to 'trial'.
+        minjitter (int, optional): Minimum jitter in samples. Defaults to 0.
+        maxjitter (int or 'nsamples', optional): Maximum jitter in samples. Defaults to 'nsamples'.
+
+    Raises:
+        Please use same time window and sampling frequency for all subjects:
+            Make sure that all Epochs have the same time window and sampling frequency.
+        Please use a int as maxjitter of default 'nsamples':
+            Make sure that maxjitter is a int or 'nsamples'
+
+    Returns:
+        surrogate (list): List of surrogated mne.Epochs(...) data.
+    """
     # Fetching Epochs
     data = cp.deepcopy(epochs)
     infos = [sub.info for sub in data]
@@ -78,7 +83,18 @@ def create_surrogate(epochs, mode='trial', minjitter=0, maxjitter='nsamples'):
 
 # %% Defining Class
 class gTRCA() :
-    def __init__(self, data, ncomps=5, protocol_info=None,
+    """ gTRCA Class for Group TRCA Analysis of MNE Epochs Data.
+    Args:
+        data (list of mne.Epochs): List of MNE Epochs to apply gTRCA.
+        ncomps (int or 'all', optional): Number of components to use. Defaults to 1.
+        protocol_info (dict, optional): Dictionary with information about the protocol. Defaults to None.
+        reg (float, optional): Regularization parameter. Defaults to 10**5.
+        norm_q (bool, optional): Normalize q. Defaults to True.
+        norm_y (bool, optional): Normalize y. Defaults to True.
+        show_progress (bool, optional): Show progress bar. Defaults to True.
+        verbose (bool, optional): Show verbose output. Defaults to True.
+    """
+    def __init__(self, data, ncomps=1, protocol_info=None,
                   reg=10**5, norm_q=True, norm_y=True,
                   show_progress=True, verbose=True):
         self.verbose=verbose
@@ -130,6 +146,16 @@ class gTRCA() :
         return epochs
 
     def calculate_u_q(self, epochs):
+        """
+        This function is used to calculate the U and Q matrices.
+        Args:
+            epochs (list of np.ndarray): List of Subjects Data in np.ndarray format
+        Returns:
+            u (list of np.ndarray): List of U matrices.
+            v (list of np.ndarray): List of V matrices.
+            q0 (list of np.ndarray): List of Q0 matrices.
+            q (np.ndarray): Q matrix as diagonally concatenated Q0 matrices.
+        """
         # Epochs (ntrials, nchs, tau)
         u = []
         v = []
@@ -160,6 +186,12 @@ class gTRCA() :
         return u, v, q0, q
 
     def calculate_s(self, epochs):
+        """ This function is used to calculate the S matrix.
+        Args:
+            epochs (list of np.ndarray): List of Subjects Data in np.ndarray format
+        Returns:
+            s (np.ndarray): S matrix.
+        """
         # computation of S and Q matrices:
         s = np.zeros([np.sum(self.nchannels), np.sum(self.nchannels)])
         if self.verbose:
@@ -181,6 +213,13 @@ class gTRCA() :
         return s
 
     def regularize_matrix(self,S,reg):
+        """ This function is used to regularize the S matrix. It is useful for further matrix inverse operations.
+        Args:
+            S (np.ndarray): S matrix.
+            reg (float): Regularization parameter.
+        Returns:
+            reg_num (int): Number of components to be used for regularization.
+        """
         eps=np.finfo(float).eps
         ix1=np.where(np.abs(S)<1000*np.finfo(float).eps)[0] #removing null components
         ix2 = np.where((S[0:-1]/(eps+S[1:]))>reg)[0] #cut-off based on eingenvalue ratios
@@ -192,14 +231,29 @@ class gTRCA() :
         return reg_num
     
     def apply_inverse_reg(self, reg):
+        """ This function is used to apply the inverse of the S matrix.
+        Args:
+            reg (float): Regularization parameter.
+        Returns:
+            inv_q (np.ndarray): Inverse of the S matrix.
+            S (np.ndarray): S matrix.
+        """
         if self.verbose:
             print('Regularizing via Ratio Eig > ('+str(reg)+')...')
         U, S, V = np.linalg.svd(self.q)
-        reg_num=self.regularize_matrix(S,reg)
+        reg_num = self.regularize_matrix(S,reg)
         inv_q = (V[0:reg_num, :].T* (1./S[0:reg_num])) @ U[:, 0:reg_num].T
         return inv_q, S
 
     def apply_eigen_decomposition(self, inv_q,reg):
+        """ This function is used to apply the eigen decomposition of the S matrix.
+        Args:
+            inv_q (np.ndarray): Inverse of the S matrix.
+            reg (float): Regularization parameter.
+        Returns:
+            rho (np.ndarray): Eigenvalues of the S matrix.
+            vecs (np.ndarray): Eigenvectors of the S matrix.
+        """
         M = inv_q @ self.s
         rho, vecs = np.linalg.eig(M) 
         indx=np.argsort(np.real(rho));indx=indx[-1::-1]
@@ -214,7 +268,18 @@ class gTRCA() :
         vecs=np.real(vecs)
         return rho, vecs
 
-    def project_results(self, epochs=None, components=5, norm_y=True):       
+    def project_results(self, epochs=None, components=5, norm_y=True):
+        """ This function is used to project the results of the S matrix.
+        Args:
+            epochs (list of np.ndarray): List of Subjects Data in np.ndarray format
+            components (int): Number of components to be used for projection.
+            norm_y (bool): Normalize the y_data.
+        Returns:
+            w (list of np.ndarray): List of w vectors for each subject.
+            ydata (list of np.ndarray): List of y_data for each subject.
+            maps (list of np.ndarray): List of maps for each subject.
+            y1 (list of np.ndarray): List of y1 for each subject.
+        """
         if self.verbose:
             print('Projecting Results...')
         nsubs = self.nsubjects
@@ -260,6 +325,12 @@ class gTRCA() :
         return ydata, maps, w
 
     def plot_maps(self, component=0, subject=None, axes=None):
+        """ This function is used to plot the scalp maps.
+        Args:
+            component (int): Component to be plotted.
+            subject (int): Subject to be plotted.
+            axes (matplotlib.axes._subplots.AxesSubplot): Axes to be plotted.
+        """
         if subject is None:
             mean = np.mean([self.maps[sub][component] for sub in range(self.nsubjects)], axis=0) # maps: [sub][comp](62) --> (62)
             mne.viz.plot_topomap(mean, self.mne_infos[0], axes=axes,show=False,cmap='jet');
@@ -268,6 +339,14 @@ class gTRCA() :
         return
 
     def plot_ydata(self, component=0, subject=None, axes=None, colors=['gray','red'],basecorr=None):
+        """ This function is used to plot the y_data.
+        Args:
+            component (int): Component to be plotted.
+            subject (int): Subject to be plotted.
+            axes (matplotlib.axes._subplots.AxesSubplot): Axes to be plotted.
+            colors (list of str): List of colors to be used.
+            basecorr (list of float): List of times to be used for baseline correction.
+        """
         if axes is None:
             fig, ax = plt.subplots()
         else:
@@ -300,23 +379,42 @@ class gTRCA() :
             return
 
     def fix_ydata_orientation(self):
-            ncomps = np.shape(self.ydata[0])[0]
-            ynorm = [np.zeros([ncomps, self.tau])]*self.nsubjects
-            for c in range(ncomps):
-                ynorm = [np.mean(y[c,:,:], axis=0) for y in self.ydata]
-                ynorm = [(y-np.mean(y))/np.std(y) for y in ynorm]
-                mean_abs = [np.abs(y) for y in ynorm]
-                mean_abs = np.mean(np.array(mean_abs),axis=0)
-                peak, _ = scipy.signal.find_peaks(mean_abs, distance=len(mean_abs))
-                for i in range(len(self.ydata)):
-                    peak_sig = np.sign(ynorm[i][peak])
-                    self.ydata[i][c,:,:] = peak_sig*self.ydata[i][c,:,:]
-                    self.maps[i][c,:] = peak_sig*self.maps[i][c,:]
-                    self.w[i][c,:] = peak_sig*self.w[i][c,:]
-                # ADD SECOND FIX: BASED ON TEMPORAL CORRELATION
-            return
+        """ This function is used to fix the orientation of the y_data.
+            It is used to make sure that the y_data is always positive on the first peak of GMFP.
+            If the previous results in a negative correlation with the mean, it is fliped.
+        """
+        ncomps = np.shape(self.ydata[0])[0]
+        ynorm = [np.zeros([ncomps, self.tau])]*self.nsubjects
+        for c in range(ncomps):
+            ynorm = [np.mean(y[c,:,:], axis=0) for y in self.ydata]
+            ynorm = [(y-np.mean(y))/np.std(y) for y in ynorm]
+            mean_abs = [np.abs(y) for y in ynorm]
+            mean_abs = np.mean(np.array(mean_abs),axis=0)
+            peak, _ = scipy.signal.find_peaks(mean_abs, distance=len(mean_abs))
+            # First fix: based on first peak of GMFP
+            for i in range(len(self.ydata)):
+                peak_sig = np.sign(ynorm[i][peak])
+                self.ydata[i][c,:,:] = peak_sig*self.ydata[i][c,:,:]
+                self.maps[i][c,:] = peak_sig*self.maps[i][c,:]
+                self.w[i][c,:] = peak_sig*self.w[i][c,:]
+            # Second fix: based on correlation with the mean.
+            for i in range(len(self.ydata)):
+                corr = np.corrcoef(np.mean(self.ydata[i][c,:,:],axis=0), mean_abs)[0,1]
+                if corr < 0:
+                    self.ydata[i][c,:,:] = -self.ydata[i][c,:,:]
+                    self.maps[i][c,:] = -self.maps[i][c,:]
+                    self.w[i][c,:] = -self.w[i][c,:]
+        return
 
     def make_evoked(self, comp=None, subject=None):
+        """ This function is used to make the evoked response.
+            It can be used to make the evoked response of a single subject or the average of all subjects.
+        Args:
+            comp (int): Component to be used.
+            subject (int): Subject to be used.
+        Returns:
+            yevoked (numpy.ndarray): mne.Evoked(...).
+        """
         if comp is None:
             comp = self.ncomps
         w = self.w # [subject](ncomps, nchannels)
@@ -339,9 +437,9 @@ class gTRCA() :
         """Get predictive filter of new available data
 
         Args:
-            subject (_type_): subject object. Please use same trial duration
+            subject (mne.Epochs): subject object. Please use same trial duration
                 since we're using same tw_idx for selecting projection window
-            trial ('all', int or list optional): which trial to use.
+            trial ('all', int or list, optional): which trial to use.
                 Defaults to 'all'. If list, gets form trial[0]:trial[1]
 
         Returns:
@@ -407,5 +505,4 @@ class gTRCA() :
             correl,prel=scipy.stats.pearsonr(sub_ydata[c,:], yg[c,:])
             if prel<0.05:
                 corrs_avg[c] = correl
-
         return sub_ydata, corrs_trials, corrs_avg, maps, q, w
