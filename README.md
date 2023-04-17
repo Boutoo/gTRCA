@@ -15,6 +15,7 @@ The gTRCA for Python project is an implementation of the Group Task-Related Comp
 - numpy
 - matplotlib
 - copy
+- shutil
 
 ## Installation
 
@@ -22,10 +23,10 @@ To install the required libraries, you can use either `conda` or `pip`.
 
 ```bash
 # Using conda
-conda install mne scipy numpy matplotlib
+conda install mne scipy numpy matplotlib shutil
 
 # Using pip
-pip install mne scipy numpy matplotlib
+pip install mne scipy numpy matplotlib shutil
 ```
 
 ## Usage

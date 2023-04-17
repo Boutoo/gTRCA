@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from scipy.io import loadmat
 import scipy
 import copy as cp
+import shutil
 
 # %% Functions
 def print_progress_bar(iteration, total, fill = '•', length=40, autosize = False):
