@@ -86,7 +86,7 @@ class gTRCA() :
     """ gTRCA Class for Group TRCA Analysis of MNE Epochs Data.
     Args:
         data (list of mne.Epochs): List of MNE Epochs to apply gTRCA.
-        ncomps (int or 'all', optional): Number of components to use. Defaults to 1.
+        n_components (int or 'all', optional): Number of components to use. Defaults to 1.
         protocol_info (dict, optional): Dictionary with information about the protocol. Defaults to None.
         reg (float, optional): Regularization parameter. Defaults to 10**5.
         norm_q (bool, optional): Normalize q. Defaults to True.
@@ -94,7 +94,7 @@ class gTRCA() :
         show_progress (bool, optional): Show progress bar. Defaults to True.
         verbose (bool, optional): Show verbose output. Defaults to True.
     """
-    def __init__(self, data, ncomps=1, protocol_info=None,
+    def __init__(self, data, n_components=1, protocol_info=None,
                   reg=10**5, norm_q=True, norm_y=True,
                   show_progress=True, verbose=True):
         self.verbose=verbose
@@ -114,10 +114,10 @@ class gTRCA() :
         self.s = self.calculate_s(epochs)
         inv_q, self.Svd = self.apply_inverse_reg(reg)
         self.rho, self.vecs = self.apply_eigen_decomposition(inv_q,reg)
-        if ncomps == 'all':
-            ncomps = len(self.rho)
-        self.ncomps = ncomps
-        self.ydata, self.maps, self.w = self.project_results(epochs, components=self.ncomps, norm_y=self.norm_y)
+        if n_components == 'all':
+            n_components = len(self.rho)
+        self.n_components = n_components
+        self.ydata, self.maps, self.w = self.project_results(epochs, components=self.n_components, norm_y=self.norm_y)
         self.fix_ydata_orientation()
 
     def group_to_array(self, data, normalize_q=True):
@@ -383,9 +383,9 @@ class gTRCA() :
             It is used to make sure that the y_data is always positive on the first peak of GMFP.
             If the previous results in a negative correlation with the mean, it is fliped.
         """
-        ncomps = np.shape(self.ydata[0])[0]
-        ynorm = [np.zeros([ncomps, self.tau])]*self.nsubjects
-        for c in range(ncomps):
+        n_components = np.shape(self.ydata[0])[0]
+        ynorm = [np.zeros([n_components, self.tau])]*self.nsubjects
+        for c in range(n_components):
             ynorm = [np.mean(y[c,:,:], axis=0) for y in self.ydata]
             ynorm = [(y-np.mean(y))/np.std(y) for y in ynorm]
             mean_abs = [np.abs(y) for y in ynorm]
@@ -397,42 +397,18 @@ class gTRCA() :
                 self.ydata[i][c,:,:] = peak_sig*self.ydata[i][c,:,:]
                 self.maps[i][c,:] = peak_sig*self.maps[i][c,:]
                 self.w[i][c,:] = peak_sig*self.w[i][c,:]
-            # Second fix: based on correlation with the mean.
+            # Second fix: based on correlation with the mean. Useful when first correction is not enough.
+            # Weak components may have a negative correlation with the mean, so we flip them.
             for i in range(len(self.ydata)):
-                corr = np.corrcoef(np.mean(self.ydata[i][c,:,:],axis=0), mean_abs)[0,1]
+                corr = np.corrcoef(np.mean(self.ydata[i][c,:,:],axis=0),
+                                   np.mean(np.array([np.mean(y[c,:,:],axis=0) for y in self.ydata]), axis=0))[0,1] # Mean of all subs ydata
                 if corr < 0:
                     self.ydata[i][c,:,:] = -self.ydata[i][c,:,:]
                     self.maps[i][c,:] = -self.maps[i][c,:]
                     self.w[i][c,:] = -self.w[i][c,:]
         return
 
-    def make_evoked(self, comp=None, subject=None):
-        """ This function is used to make the evoked response.
-            It can be used to make the evoked response of a single subject or the average of all subjects.
-        Args:
-            comp (int): Component to be used.
-            subject (int): Subject to be used.
-        Returns:
-            yevoked (numpy.ndarray): mne.Evoked(...).
-        """
-        if comp is None:
-            comp = self.ncomps
-        w = self.w # [subject](ncomps, nchannels)
-        ydata = self.ydata # [subject](ncomps, ntrials, tau)
-        if subject is None:
-            subs_ymean = [np.mean(suby, axis=1) for suby in ydata]
-            yevoked = np.zeros([self.nsubjects, self.nchannels, self.tau])
-            for i in range(self.nsubjects):
-                # Multiplying each subject spatial map and its respective component
-                yevoked[i] = w[i].T @ subs_ymean[i]
-            yevoked = np.mean(yevoked, axis=0) # Mean of Subjects
-        else:
-            sub_ymean = np.mean(ydata[subject], axis=1)
-            yevoked = np.zeros([self.nchannels, self.tau])
-            yevoked = w[subject].T @ sub_ymean
-        yevoked = mne.EvokedArray(yevoked, self.mne_info, tmin=self.tmin) 
-        return yevoked
-
+    # Needs Refactoring
     def project(self, subject, trial='all'):
         """Get predictive filter of new available data
 
@@ -443,8 +419,8 @@ class gTRCA() :
                 Defaults to 'all'. If list, gets form trial[0]:trial[1]
 
         Returns:
-            w (ncomps, nchannels): predictive spatial filter W(a+1)
-            corrs (ncomps): correlation of newsub_ydata and mean_group_ydata
+            w (n_components, nchannels): predictive spatial filter W(a+1)
+            corrs (n_components): correlation of newsub_ydata and mean_group_ydata
             maps (nchannels): 
             q: covmatrix
         """
@@ -479,20 +455,20 @@ class gTRCA() :
         tau = len(times)
         nsubs = self.nsubjects # nsubs
         u = self.u # (nsubjects, nchannels, tau)
-        wg = self.w # [nsubs](ncomps, nchannels)
-        yg = self.ydata # [nsubs](ncomps, ntrials, tau)
-        yg = [np.mean(yg[sub], axis=1) for sub in range(nsubs)] # [nsubs](ncomps, tau)
-        yg = np.mean([yg[sub] for sub in range(nsubs)], axis=0) # [nsubs](ncomps, tau)
+        wg = self.w # [nsubs](n_components, nchannels)
+        yg = self.ydata # [nsubs](n_components, ntrials, tau)
+        yg = [np.mean(yg[sub], axis=1) for sub in range(nsubs)] # [nsubs](n_components, tau)
+        yg = np.mean([yg[sub] for sub in range(nsubs)], axis=0) # [nsubs](n_components, tau)
 
-        ncomps = self.ncomps
+        n_components = self.n_components
         
         # Applying Projection
-        w = np.zeros([ncomps, nchs])
-        sub_ydata = np.zeros([ncomps, tau])
-        corrs_trials = np.zeros([ntrials,ncomps])
-        corrs_avg=np.zeros(ncomps)
-        maps = np.zeros([ncomps, nchs])
-        for c in range(ncomps):
+        w = np.zeros([n_components, nchs])
+        sub_ydata = np.zeros([n_components, tau])
+        corrs_trials = np.zeros([ntrials,n_components])
+        corrs_avg=np.zeros(n_components)
+        maps = np.zeros([n_components, nchs])
+        for c in range(n_components):
             M = np.sum([u[i].T @ wg[i][c,:] for i in range(nsubs)], axis=0)
             x = np.mean(data, axis=0) # (nchannels, tau)
             w[c,:] = (1/(2*nsubs))* ((inv_q @ x) @ M)
@@ -506,3 +482,31 @@ class gTRCA() :
             if prel<0.05:
                 corrs_avg[c] = correl
         return sub_ydata, corrs_trials, corrs_avg, maps, q, w
+
+    # Needs Refactoring (Not that useful anymore)
+    # def make_evoked(self, comp=None, subject=None):
+    #     """ This function is used to make the evoked response.
+    #         It can be used to make the evoked response of a single subject or the average of all subjects.
+    #     Args:
+    #         comp (int): Component to be used.
+    #         subject (int): Subject to be used.
+    #     Returns:
+    #         yevoked (numpy.ndarray): mne.Evoked(...).
+    #     """
+    #     if comp is None:
+    #         comp = self.n_components
+    #     w = self.w # [subject](n_components, nchannels)
+    #     ydata = self.ydata # [subject](n_components, ntrials, tau)
+    #     if subject is None:
+    #         subs_ymean = [np.mean(suby, axis=1) for suby in ydata]
+    #         yevoked = np.zeros([self.nsubjects, self.nchannels, self.tau])
+    #         for i in range(self.nsubjects):
+    #             # Multiplying each subject spatial map and its respective component
+    #             yevoked[i] = w[i].T @ subs_ymean[i]
+    #         yevoked = np.mean(yevoked, axis=0) # Mean of Subjects
+    #     else:
+    #         sub_ymean = np.mean(ydata[subject], axis=1)
+    #         yevoked = np.zeros([self.nchannels, self.tau])
+    #         yevoked = w[subject].T @ sub_ymean
+    #     yevoked = mne.EvokedArray(yevoked, self.mne_info, tmin=self.tmin) 
+    #     return yevoked
