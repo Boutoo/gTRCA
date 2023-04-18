@@ -231,12 +231,12 @@ class gTRCA() :
         return reg_num
     
     def apply_inverse_reg(self, reg):
-        """ This function is used to apply the inverse of the S matrix.
+        """ This function is used to apply the inverse of the Q matrix.
         Args:
             reg (float): Regularization parameter.
         Returns:
-            inv_q (np.ndarray): Inverse of the S matrix.
-            S (np.ndarray): S matrix.
+            inv_q (np.ndarray): Inverse of the Q matrix.
+            S (np.ndarray): S from SVD matrix.
         """
         if self.verbose:
             print('Regularizing via Ratio Eig > ('+str(reg)+')...')
