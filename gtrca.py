@@ -229,7 +229,7 @@ def create_surrogate(epochs, mode='trial', minjitter=0, maxjitter='nsamples'):
 #     return eigenvalues[0]
 
 # %% Defining Class
-class gTRCA() :
+class gTRCA():
     """ gTRCA Class for Group TRCA Analysis of MNE Epochs Data.
     Args:
         data (list of mne.Epochs): List of MNE Epochs to apply gTRCA.
@@ -515,91 +515,53 @@ class gTRCA() :
                     w[i][c,:] = -w[i][c,:]
         return ydata, maps, w
 
-    def fit(self, new_epoch):
+    def fit(self, new_epoch, component=0, weights=None):
+        """ This function is used to fit a new subject to the model.
+        Args:
+            new_epoch (mne.Epochs): New subject data in mne.Epochs format.
+            weights (np.ndarray): Weights to be used for fitting. If None, the weights from the last projection will be used.
+            component (int): Component to be used for fitting.
+        Returns:
+            y (np.ndarray): y for the new subject.
+            w (np.ndarray): w for the new subject.
+            map (np.ndarray): map for the new subject.
+        """
+
+        try:
+            if weights == None:
+                weights = self.w
+        except:
+            raise Exception('No weights provided. Please make a projection first or provide weights.')
+        
         print('Fitting new subject...')
         # Get new subject data
         newsub_data = new_epoch.get_data()
         ntrials, nchannels, nsamples = np.shape(newsub_data)
-        return 
+        new_sub = new_sub.get_data()
+        ntrials, nchannels, nsamples = np.shape(new_sub)
 
+        # Covariance Matrix
+        continuous = np.reshape(new_sub, (nchannels, ntrials*nsamples))
+        q_new = (1/nsamples)*continuous@continuous.T
+        inv_q_new = np.linalg.inv(q_new)
 
-    # Needs Refactoring
-    # def project(self, subject, trial='all'):
-    #     """Get predictive filter of new available data
+        # Weights
+        mean_weight = np.mean(weights, axis=0)
+        sum_weights = [self.u[i].T @ weights[i][component,:] for i in range(self.nsubjects)]
+        sum_weights = np.sum(sum_weights, axis=0)
 
-    #     Args:
-    #         subject (mne.Epochs): subject object. Please use same trial duration
-    #             since we're using same tw_idx for selecting projection window
-    #         trial ('all', int or list, optional): which trial to use.
-    #             Defaults to 'all'. If list, gets form trial[0]:trial[1]
+        # New Weights
+        new_w = (1/2*self.nsubjects*self.eigenvalues[component]) * (inv_q_new @ np.mean(new_sub, axis=0)) @ sum_weights
 
-    #     Returns:
-    #         w (n_components, nchannels): predictive spatial filter W(a+1)
-    #         corrs (n_components): correlation of newsub_ydata and mean_group_ydata
-    #         maps (nchannels): 
-    #         q: covmatrix
-    #     """
-    #     # Subject input
-    #     sub = subject.get_data()
-    #     times = subject.times
-    #     ntrials, nchs, _ = np.shape(sub)
+        new_ydata = [new_w.T @ new_sub[i,:,:] for i in range(ntrials)]
+        new_map = q_new @ new_w
 
-    #     # Trial input
-    #     trial = 'all'
-    #     if isinstance(trial,str):
-    #         if trial == 'all':
-    #             trial = [i for i in range(ntrials)]
-    #     elif type(trial) == int:
-    #         trial = [trial]
+        # Fixing Polarity
+        if np.corrcoef(new_map, mean_weight)[0,1] < 0:
+            new_map = -new_map
+            new_ydata = -new_ydata
 
-    #     # Getting only selected trials
-    #     data = sub[trial, :, :]
-
-    #     # Subject Operations
-    #     raw = np.transpose(data, (1,0,2))
-    #     raw = raw.reshape(np.shape(raw)[0],-1) # (nchannels, ntrials*tau)
-    #     q = (raw @ raw.T)/np.shape(raw)[1] # (nchannels, nchannels)
-        
-    #     inv_q = np.linalg.inv(q) # (nchannels, nchannels)
-    #     if np.max(np.imag(inv_q)) != 0:
-    #         print('Q Inverse has imaginary values')
-
-    #     # Group Operations
-    #     if np.any(times != self.times):
-    #         raise Exception('Please make sure that the new subject time window and sampling frequency match gTRCA subjects')
-    #     tau = len(times)
-    #     nsubs = self.nsubjects # nsubs
-    #     u = self.u # (nsubjects, nchannels, tau)
-    #     wg = self.w # [nsubs](n_components, nchannels)
-    #     yg = self.ydata # [nsubs](n_components, ntrials, tau)
-    #     yg = [np.mean(yg[sub], axis=1) for sub in range(nsubs)] # [nsubs](n_components, tau)
-    #     yg = np.mean([yg[sub] for sub in range(nsubs)], axis=0) # [nsubs](n_components, tau)
-
-    #     n_components = self.n_components
-        
-    #     # Applying Projection
-    #     w = np.zeros([n_components, nchs])
-    #     sub_ydata = np.zeros([n_components, tau])
-    #     corrs_trials = np.zeros([ntrials,n_components])
-    #     corrs_avg=np.zeros(n_components)
-    #     maps = np.zeros([n_components, nchs])
-    #     for c in range(n_components):
-    #         M = np.sum([u[i].T @ wg[i][c,:] for i in range(nsubs)], axis=0)
-    #         x = np.mean(data, axis=0) # (nchannels, tau)
-    #         w[c,:] = (1/(2*nsubs))* ((inv_q @ x) @ M)
-    #         sub_ydata[c,:] = w[c,:] @ x
-    #         maps[c,:] = q @ w[c,:]  
-    #         norm=np.std(sub_ydata[c,:])
-    #         sub_ydata[c,:]=sub_ydata[c,:]/norm
-    #         w[c,:] = w[c,:]/norm
-    #         maps[c,:]=maps[c,:]/norm
-    #         correl,prel=scipy.stats.pearsonr(sub_ydata[c,:], yg[c,:])
-    #         if prel<0.05:
-    #             corrs_avg[c] = correl
-    #     return sub_ydata, corrs_trials, corrs_avg, maps, q, w
-
-
+        return new_ydata, new_map, new_w
 
 # ADD:
-# Function: Compute Correlations (temporal and spatial)
 # gtrca_surr() -> minimal gtrca, only for extracting first eigenvalue
