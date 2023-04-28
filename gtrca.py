@@ -279,6 +279,11 @@ class gTRCA():
         ydata, maps, w = self.project_results(self.epochs_data, components=n_components, norm_y=self.norm_y)
         if fix_orientation:
             ydata, maps, w = self.fix_ydata_orientation(ydata, maps, w)
+
+        # Saving results
+        self.ydata = ydata
+        self.maps = maps
+        self.w = w
         return ydata, maps, w
 
     def group_to_array(self, data, normalize_q=True):
