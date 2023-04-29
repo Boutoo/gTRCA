@@ -520,12 +520,12 @@ class gTRCA():
                     w[i][c,:] = -w[i][c,:]
         return ydata, maps, w
 
-    def fit(self, new_epoch, component=0, weights=None):
+    def fit(self, new_epoch, component=0, weights=None, reg=10**5):
         """ This function is used to fit a new subject to the model.
         Args:
             new_epoch (mne.Epochs): New subject data in mne.Epochs format.
-            weights (np.ndarray): Weights to be used for fitting. If None, the weights from the last projection will be used.
             component (int): Component to be used for fitting.
+            weights (np.ndarray): Weights to be used for fitting. If None, the weights from the last projection will be used.
         Returns:
             y (np.ndarray): y for the new subject.
             w (np.ndarray): w for the new subject.
@@ -540,15 +540,17 @@ class gTRCA():
         
         print('Fitting new subject...')
         # Get new subject data
-        newsub_data = new_epoch.get_data()
-        ntrials, nchannels, nsamples = np.shape(newsub_data)
-        new_sub = new_sub.get_data()
+        new_sub = new_epoch.get_data()
         ntrials, nchannels, nsamples = np.shape(new_sub)
 
         # Covariance Matrix
-        continuous = np.reshape(new_sub, (nchannels, ntrials*nsamples))
-        q_new = (1/nsamples)*continuous@continuous.T
-        inv_q_new = np.linalg.inv(q_new)
+        continuous = np.concatenate([new_sub[i,:,:] for i in range(ntrials)], axis=1)
+        q_new = (1/nsamples)*(continuous@continuous.T)
+
+        # Making inverse of q matrix with regularization
+        U, S, V = np.linalg.svd(q_new)
+        reg_num = self.regularize_matrix(S, reg)
+        inv_q_new = (V[0:reg_num, :].T* (1./S[0:reg_num])) @ U[:, 0:reg_num].T
 
         # Weights
         mean_weight = np.mean(weights, axis=0)
@@ -556,17 +558,19 @@ class gTRCA():
         sum_weights = np.sum(sum_weights, axis=0)
 
         # New Weights
-        new_w = (1/2*self.nsubjects*self.eigenvalues[component]) * (inv_q_new @ np.mean(new_sub, axis=0)) @ sum_weights
+        w = (1/2*self.nsubjects) * (inv_q_new @ np.mean(new_sub, axis=0)) @ sum_weights
 
-        new_ydata = [new_w.T @ new_sub[i,:,:] for i in range(ntrials)]
-        new_map = q_new @ new_w
+        y = np.array([w.T @ new_sub[i,:,:] for i in range(ntrials)])
+        y = y/np.std(np.mean(y, axis=0)) # Normalization
+
+        map = q_new @ w
 
         # Fixing Polarity
-        if np.corrcoef(new_map, mean_weight)[0,1] < 0:
-            new_map = -new_map
-            new_ydata = -new_ydata
+        if np.corrcoef(map, mean_weight)[0,1] < 0:
+            map = -map
+            y = -y
 
-        return new_ydata, new_map, new_w
+        return y, map, w
 
 # ADD:
 # gtrca_surr() -> minimal gtrca, only for extracting first eigenvalue
