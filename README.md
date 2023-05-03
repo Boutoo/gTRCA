@@ -1,6 +1,6 @@
-# gTRCA for Python
+# gTRCA for TMS-EEG
 
-The gTRCA for Python project is an implementation of the Group Task-Related Component Analysis (gTRCA) method [(Tanaka, 2020)](https://www.nature.com/articles/s41598-019-56962-2) for Python. This method is a multivariate analysis technique designed to identify the neural components that are consistently task-related across a group of participants. It extends the conventional TRCA by incorporating between-subjects variability, making it suitable for group-level analysis. The gTRCA method has applied to TMS-EEG data on a study to investigate the [group level reproducibility of TMS evoked potentials (Under development) ](https://github.com/Boutoo/gTRCA) and this project is specifically tailored for such purposes. The implementation is designed to work with MNE.Epochs() objects, a commonly used data structure for handling EEG data in Python.
+The gTRCA for Python project is an implementation of the Group Task-Related Component Analysis (gTRCA) method [(Tanaka, 2020)](https://www.nature.com/articles/s41598-019-56962-2) for TMS-EEG signals using Python. This method is a multivariate analysis technique designed to identify the neural components that are consistently task-related across a group of participants. It extends the conventional TRCA by incorporating between-subjects variability, making it suitable for group-level analysis. The gTRCA method has applied to TMS-EEG data on a study to investigate the [group level reproducibility of TMS evoked potentials (Under development) ](https://github.com/Boutoo/gTRCA) and this project is specifically tailored for such purposes. The implementation is designed to work with a list of MNE.Epochs() objects, a commonly used data structure for handling EEG data in Python.
 
 ## Features
 
@@ -37,8 +37,8 @@ from gtrca import gTRCA, create_surrogate
 #list_of_epochs = [mne.Epochs(...), ...]
 
 # Running gTRCA
-gtrca = gTRCA(list_of_epochs, ncomps=1)
-gtrca.plot_ydata()
+gtrca = gTRCA(list_of_epochs)
+gtrca.proj()
 
 # Creating a single surrogate
 surrogate = create_surrogate(list_of_epochs, mode='trial')
