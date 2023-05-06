@@ -273,6 +273,7 @@ class gTRCA():
 
         Returns:
             ydata (list of np.ndarray): List of Subjects Data projected into gTRCA space.
+            [(trials, n_components, tau),...,(n_components, trial, tau)]
             maps (list of np.ndarray): List of Subjects Maps.
             w (np.ndarray): Weights of the gTRCA components.
         """
@@ -520,11 +521,14 @@ class gTRCA():
                     w[i][c,:] = -w[i][c,:]
         return ydata, maps, w
 
-    def fit(self, new_epoch, component=0, weights=None, reg=10**5):
+    def fit(self, new_epoch, return_correlation=False,
+            component=0, weights=None, reg=10**5
+            correlation_times=[None,None]):
         """ This function is used to fit a new subject to the model.
         Args:
             new_epoch (mne.Epochs): New subject data in mne.Epochs format.
             component (int): Component to be used for fitting.
+            return_correlation (bool): Return only the correlation between the new subject and the model. Defaults to False.
             weights (np.ndarray): Weights to be used for fitting. If None, the weights from the last projection will be used.
         Returns:
             y (np.ndarray): y for the new subject.
@@ -537,8 +541,7 @@ class gTRCA():
                 weights = self.w
         except:
             raise Exception('No weights provided. Please make a projection first or provide weights.')
-        
-        print('Fitting new subject...')
+
         # Get new subject data
         new_sub = new_epoch.get_data()
         ntrials, nchannels, nsamples = np.shape(new_sub)
@@ -566,11 +569,27 @@ class gTRCA():
         map = q_new @ w
 
         # Fixing Polarity
-        if np.corrcoef(map, mean_weight)[0,1] < 0:
-            map = -map
-            y = -y
+        mean_ydata = np.mean([np.mean(ydata[component,:,:], axis=0) for ydata in self.ydata], axis=0)
+        mean_map = np.mean([map[component, :] for map in self.maps], axis=0)
 
-        return y, map, w
+        # Chosing times for correlation: [tc0, tc1]
+        time_corr = np.corrcoef(np.mean(y, axis=0), mean_ydata)[0,1]
+        if time_corr < 0:
+            y = -y
+            map = -map
+            time_corr = -time_corr
+        
+        if return_correlation:
+            map_corr = np.corrcoef(map, mean_map)[0,1]
+            return time_corr, map_corr
+        else:
+            return y, map, w
 
 # ADD:
 # gtrca_surr() -> minimal gtrca, only for extracting first eigenvalue
+# Check if there's work about classification on MMN
+
+
+# Dados
+# Componentes
+# Correlação
