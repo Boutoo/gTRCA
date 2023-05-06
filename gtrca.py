@@ -588,8 +588,3 @@ class gTRCA():
 # ADD:
 # gtrca_surr() -> minimal gtrca, only for extracting first eigenvalue
 # Check if there's work about classification on MMN
-
-
-# Dados
-# Componentes
-# Correlação
