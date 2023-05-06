@@ -522,7 +522,7 @@ class gTRCA():
         return ydata, maps, w
 
     def fit(self, new_epoch, return_correlation=False,
-            component=0, weights=None, reg=10**5
+            component=0, weights=None, reg=10**5,
             correlation_times=[None,None]):
         """ This function is used to fit a new subject to the model.
         Args:
