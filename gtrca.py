@@ -564,7 +564,14 @@ class gTRCA():
         w = (1/2*self.nsubjects) * (inv_q_new @ np.mean(new_sub, axis=0)) @ sum_weights
 
         y = np.array([w.T @ new_sub[i,:,:] for i in range(ntrials)])
-        y = y/np.std(np.mean(y, axis=0)) # Normalization
+        if ntrials != 1:
+            y = y/np.std(np.mean(y, axis=0)) # Normalization
+            y = y[component,:,:]
+            mean_y = np.mean(y, axis=0)
+        else:
+            y = y[component,:]
+            y = y/np.std(y)
+            mean_y = y
 
         map = q_new @ w
 
@@ -573,11 +580,26 @@ class gTRCA():
         mean_map = np.mean([map[component, :] for map in self.maps], axis=0)
 
         # Chosing times for correlation: [tc0, tc1]
-        time_corr = np.corrcoef(np.mean(y, axis=0), mean_ydata)[0,1]
+        time_corr = np.corrcoef(mean_y, mean_ydata)[0,1]
         if time_corr < 0:
             y = -y
+            mean_y = -mean_y
             map = -map
             time_corr = -time_corr
+        
+        # Chosing times for correlation: [tc0, tc1]
+        # Translating from Time (s) to Samples
+        if correlation_times[0] == None:
+            correlation_times[0] = 0
+        else:
+            correlation_times[0] = int(new_epoch.time_as_index(correlation_times[0]))
+        if correlation_times[1] == None:
+            correlation_times[1] = len(new_epoch.times)
+        else:
+            correlation_times[1] = int(new_epoch.time_as_index(correlation_times[1]))
+
+        time_corr = np.corrcoef(mean_y[correlation_times[0]:correlation_times[1]],
+                                mean_ydata[correlation_times[0]:correlation_times[1]])[0,1]
         
         if return_correlation:
             map_corr = np.corrcoef(map, mean_map)[0,1]
