@@ -474,7 +474,7 @@ class gTRCA():
                 # Normalization
                 if norm_y:
                     for c in range(components):
-                        cmean = np.mean(np.mean(ydata[i][c,:,:self.evt_onset],axis=0)) # Evoked Baseline Mean
+                        cmean = np.mean(np.mean(ydata[i][c,:,:self.evt_onset], axis=0)) # Evoked Baseline Mean
                         cstd = np.std(np.mean(ydata[i][c,:,:], axis=0)) # Evoked Std
                         ydata[i][c,:,:] = (ydata[i][c,:,:]-cmean)/cstd
 
@@ -566,7 +566,7 @@ class gTRCA():
         y = np.array([w.T @ new_sub[i,:,:] for i in range(ntrials)])
         if ntrials != 1:
             y = y/np.std(np.mean(y, axis=0)) # Normalization
-            y = y[component,:,:]
+            y = y
             mean_y = np.mean(y, axis=0)
         else:
             y = y[component,:]
@@ -588,16 +588,6 @@ class gTRCA():
             time_corr = -time_corr
         
         # Chosing times for correlation: [tc0, tc1]
-        # Translating from Time (s) to Samples
-        if correlation_times[0] == None:
-            correlation_times[0] = 0
-        else:
-            correlation_times[0] = int(new_epoch.time_as_index(correlation_times[0]))
-        if correlation_times[1] == None:
-            correlation_times[1] = len(new_epoch.times)
-        else:
-            correlation_times[1] = int(new_epoch.time_as_index(correlation_times[1]))
-
         time_corr = np.corrcoef(mean_y[correlation_times[0]:correlation_times[1]],
                                 mean_ydata[correlation_times[0]:correlation_times[1]])[0,1]
         
@@ -609,4 +599,3 @@ class gTRCA():
 
 # ADD:
 # gtrca_surr() -> minimal gtrca, only for extracting first eigenvalue
-# Check if there's work about classification on MMN
