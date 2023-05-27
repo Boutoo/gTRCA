@@ -1,16 +1,27 @@
-# %% Imports
+# ---------------------------------------------------------------------------
+# gTRCA for Evoked Potentials
+# File: gtrca.py
+# Version: 1.0.0
+# Author: Couto, B.A.N. (2023). Member of the Neuroengineering Lab from the Federal University of São Paulo.
+# Date: 2023-05-27
+# Description: Group Task Related Component Analysis (gTRCA) adapted for Evoked Potentials.
+# ---------------------------------------------------------------------------
+
+# Imports
 import mne
 import numpy as np
 import scipy
 import copy as cp
 
-# %% gTRCA
+#  gTRCA
 class gTRCA():
     """
     Group Task Related Analysis (gTRCA) class.
 
     Implemented according to the paper:
     Tanaka, H. (2020). Group task-related component analysis (gTRCA): A multivariate method for inter-trial reproducibility and inter-subject similarity maximization for EEG data analysis. Scientific Reports, 10(1), 84. https://doi.org/10.1038/s41598-019-56962-2
+
+    But adapted for Evoked Potentials that are already segmented and with a 'subject' surrogate method that allows for a more robust statistical analysis for groups.
 
     This Python implementation was made by Couto, B.A.N. (2023)
     Member of the Neuroengineering Lab from the Federal University of São Paulo.
