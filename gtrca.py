@@ -240,7 +240,7 @@ class gTRCA():
         projections, spatial_maps = self.get_projections(component,
                                                          subject='all',
                                                          average=True,
-                                                         normalization=normalization_mode,
+                                                         normalization_mode=normalization_mode,
                                                          normalization_window=normalization_window,
                                                          verbose=verbose
                                                          )
