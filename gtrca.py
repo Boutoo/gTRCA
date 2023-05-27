@@ -1,601 +1,679 @@
 # %% Imports
 import mne
 import numpy as np
-import matplotlib.pyplot as plt
-from scipy.io import loadmat
 import scipy
 import copy as cp
 
-# %% Functions
-def print_progress_bar(iteration, total, fill = '•', length=40):
-    """
-    Create a progress bar to display the progress of a loop.
-
-    Args:
-        iteration  (Int): current iteration (Required)
-        total (int): total iterations (Required)
-        fill (str): bar fill character (Optional)
-        length (100): character length of bar (Optional)
-        to the terminal window (Optional)
-    """
-    percent = ("{0:." + "0" + "f}").format(100 * (iteration / float(total)))
-    styling = '%s |%s| %s%% %s' % ('∙', fill, percent, '∙')
-    filled_length = int(length * iteration // total)
-    progress_bar = fill * filled_length + '-' * (length - filled_length)
-    print('\r%s' % styling.replace(fill, progress_bar), end = '\r')
-    # Print New Line on Complete
-    if iteration == total:
-        print()
-
-# Create 1 Surrogates (chose what kind)
-def create_surrogate(epochs, mode='trial', minjitter=0, maxjitter='nsamples'):
-    """ Creates a surrogate of the data by shifting the data in time. Data must be a list of mne.Epochs(...) format.
-
-    Args:
-        epochs (list): List of mne.Epochs(...) to create a surrogate from.
-        mode ('trial' or 'subject', optional): What mode to use: trial or subject-based shifting. Defaults to 'trial'.
-        minjitter (int, optional): Minimum jitter in samples. Defaults to 0.
-        maxjitter (int or 'nsamples', optional): Maximum jitter in samples. Defaults to 'nsamples'.
-
-    Raises:
-        Please use same time window and sampling frequency for all subjects:
-            Make sure that all Epochs have the same time window and sampling frequency.
-        Please use a int as maxjitter of default 'nsamples':
-            Make sure that maxjitter is a int or 'nsamples'
-
-    Returns:
-        surrogate (list): List of surrogated mne.Epochs(...) data.
-    """
-    # Fetching Epochs
-    data = cp.deepcopy(epochs)
-    infos = [sub.info for sub in data]
-    times = data[0].times
-
-    # Checking if all times match
-    for sub in data:
-        if np.any(sub.times != times):
-            raise Exception('Please use same time window and sampling frequency for all subjects')
-    
-    # Setting max jitter
-    if maxjitter == 'nsamples':
-        maxjitter = len(times)
-    elif type(maxjitter)!=int:
-        raise Exception("Please use a int as maxjitter of default 'nsamples'")
-
-    # Fetching data
-    data = [sub.get_data() for sub in data]
-
-    # Making Surrogate
-    if mode == 'trial':
-        for sub in data:
-            ntrials=np.shape(sub)[0]
-            jitters=np.random.randint(low=minjitter,high=maxjitter,size=ntrials)
-            for k in range(ntrials):
-                jitter=jitters[k]
-                sub[k,:,:] = np.roll(sub[k,:,:], jitter, axis=1)
-    elif mode == 'subject':
-        nsubs = len(data)
-        jitters = np.random.randint(low=minjitter,high=maxjitter,size=nsubs)
-        for i in range(len(data)):
-            data[i] = np.roll(data[i], jitters[i], axis=2)
-    surrogate = [mne.EpochsArray(sub, infos[i],tmin=times[0],verbose=False) for i,sub in enumerate(data)]
-    return surrogate
-
-# # Compute correlations of ymatrix
-# def surr_gtrca(epochs, reg=10**5, norm_q=True):
-#     # Defining Functions
-#     def calculate_u_q(epochs):
-#         """
-#         This function is used to calculate the U and Q matrices.
-#         Args:
-#             epochs (list of np.ndarray): List of Subjects Data in np.ndarray format
-#         Returns:
-#             u (list of np.ndarray): List of U matrices.
-#             v (list of np.ndarray): List of V matrices.
-#             q0 (list of np.ndarray): List of Q0 matrices.
-#             q (np.ndarray): Q matrix as diagonally concatenated Q0 matrices.
-#         """
-#         # Epochs (ntrials, nchs, tau)
-#         u = []
-#         v = []
-#         q0 = []
-#         q = np.zeros([np.sum(self.nchannels), np.sum(self.nchannels)])
-#         if self.verbose:
-#             print('Calculating U Matrix...')
-#         for i, ep in enumerate(epochs):
-#             ep = np.array(ep) # Retrieving from memory
-#             if self.show_progress is True:
-#                 print_progress_bar(i, self.nsubjects-1)
-#             raw = np.transpose(ep, (1,0,2)) # raw = channel x time x trial
-#             raw = raw.reshape(np.shape(raw)[0], -1) # concatenating all trials, raw = channel x time
-#             q0 += [(raw @ raw.T)/np.shape(raw)[1]]
-#             u += [np.mean(ep, axis=0)]
-#             ntrials = np.shape(ep)[0] # Searching for local Ntrials size
-#             vsum = 0
-#             for k in range(ntrials):
-#                 vsum += (ep[k,:,:] @ ep[k,:,:].T)
-#             v += [vsum/ntrials]
-#         if self.verbose:
-#             print('Calculating Q Matrix...')
-#         for n in range(self.nsubjects):
-#             if self.show_progress is True:
-#                 print_progress_bar(n, self.nsubjects-1)
-#             q[n*self.nchannels[n]:(n+1)*self.nchannels[n],
-#               n*self.nchannels[n]:(n+1)*self.nchannels[n]] = q0[n]
-#         return u, v, q0, q
-#     def calculate_s(epochs):
-#         """ This function is used to calculate the S matrix.
-#         Args:
-#             epochs (list of np.ndarray): List of Subjects Data in np.ndarray format
-#         Returns:
-#             s (np.ndarray): S matrix.
-#         """
-#         # computation of S and Q matrices:
-#         s = np.zeros([np.sum(nchannels), np.sum(nchannels)])
-#         count = 0
-#         for a in range(nsubjects):
-#             for b in range(nsubjects):
-#                 count += 1
-#                 if a==b: # Diagonal
-#                     ntrials = np.shape(epochs[a])[0]
-#                     stmp = 2*(ntrials/((ntrials-1)*nsamples))* \
-#                         ((u[a] @ u[a].T) - (v[a]/ntrials))
-#                 else: # Off-Diagonal
-#                     stmp = 1/nsamples*(u[a] @ u[b].T)
-#                 s[a*nchannels[a]:(a+1)*nchannels[a],
-#                   b*nchannels[b]:(b+1)*nchannels[b]] = stmp
-#         return s
-#     def apply_inverse_reg(q,reg):
-#         """ This function is used to apply the inverse of the Q matrix.
-#         Args:
-#             reg (float): Regularization parameter.
-#         Returns:
-#             inv_q (np.ndarray): Inverse of the Q matrix.
-#             S (np.ndarray): S from SVD matrix.
-#         """
-#         U, S, V = np.linalg.svd(q)
-#         reg_num = regularize_matrix(S,reg)
-#         inv_q = (V[0:reg_num, :].T* (1./S[0:reg_num])) @ U[:, 0:reg_num].T
-#         return inv_q, S
-#     def apply_eigen_decomposition(inv_q,s,reg):
-#         """ This function is used to apply the eigen decomposition of the S matrix.
-#         Args:
-#             inv_q (np.ndarray): Inverse of the Q matrix.
-#             reg (float): Regularization parameter.
-#         Returns:
-#             rho (np.ndarray): Eigenvalues of the S matrix.
-#             vecs (np.ndarray): Eigenvectors of the S matrix.
-#         """
-#         M = inv_q @ s
-#         rho, vecs = np.linalg.eig(M) 
-#         indx=np.argsort(np.real(rho));indx=indx[-1::-1]
-#         rho=rho[indx]
-#         vecs=vecs[:,indx]
-#         reg_num=regularize_matrix(np.abs(rho),reg)
-#         rho=rho[0:reg_num]
-#         vecs=vecs[:,0:reg_num]
-#         if np.max(abs(np.imag(rho)))!=0:
-#             raise NameError("Rho has complex values: check")
-#         rho=np.real(rho)
-#         vecs=np.real(vecs)
-#         return rho, vecs
-#     def regularize_matrix(S,reg):
-#         """ This function is used to regularize the S matrix. It is useful for further matrix inverse operations.
-#         Args:
-#             S (np.ndarray): S matrix.
-#             reg (float): Regularization parameter.
-#         Returns:
-#             reg_num (int): Number of components to be used for regularization.
-#         """
-#         eps=np.finfo(float).eps
-#         ix1=np.where(np.abs(S)<1000*np.finfo(float).eps)[0] #removing null components
-#         ix2 = np.where((S[0:-1]/(eps+S[1:]))>reg)[0] #cut-off based on eingenvalue ratios
-#         ix=np.union1d(ix1,ix2)
-#         if len(ix)==0:
-#             reg_num=len(S)
-#         else:
-#             reg_num=np.min(ix)
-#         return reg_num
-    
-#     # Checking input
-#     nsubjects = len(epochs)
-#     nchannels = np.array([len(sub.info['ch_names']) for sub in epochs])
-#     times = epochs[0].times # If Group: assume all subjects have the same times
-#     for epoch in epochs:
-#         if np.any(epoch.times != times):
-#             raise Exception('Please use Epochs with same Time Window and sampling frequency.')
-#     tmin, tmax = times[0], times[-1]
-#     nsamples = len(times)
-    
-#     print(epochs)
-
-#     # Q normalization
-#     if norm_q:
-#         norm_epochs=[]
-#         for i, epoch in enumerate(epochs):
-#             epoch = epoch.get_data()
-#             ntrials, nchs, tau = np.shape(epoch) # (ntrials, nchs, tau)
-#             for ch in range(nchs):
-#                 epoch[:,ch,:] = (epoch[:,ch,:]-np.mean(epoch[:,ch,:]))/np.std(epoch[:,ch,:])
-#             epochs.append(epoch)
-#     else:
-#         epochs = [epoch.get_data() for epoch in epochs] # Get Epoches Data
-
-#     # Calculating
-#     u, v, q0, q = calculate_u_q(epochs)
-#     s = calculate_s(epochs)
-#     inv_q, _ = apply_inverse_reg(q, reg)
-#     eigenvalues, _ = apply_eigen_decomposition(inv_q, s,reg)
-#     return eigenvalues[0]
-
-# %% Defining Class
+# %% gTRCA
 class gTRCA():
-    """ gTRCA Class for Group TRCA Analysis of MNE Epochs Data.
-    Args:
-        data (list of mne.Epochs): List of MNE Epochs to apply gTRCA.
-        protocol_info (dict, optional): Dictionary with information about the protocol. Defaults to None.
-        reg (float, optional): Regularization parameter. Defaults to 10**5.
-        norm_q (bool, optional): Normalize q. Defaults to True.
-        norm_y (bool, optional): Normalize y. Defaults to True.
-        show_progress (bool, optional): Show progress bar. Defaults to True.
-        verbose (bool, optional): Show verbose output. Defaults to True.
     """
-    def __init__(self, data, evt_onset=0, protocol_info=None,
-                  reg=10**5, norm_q=True, norm_y=True,
-                  show_progress=True, verbose=True):
-        self.protocol_info = protocol_info
-        if verbose == False:
-            show_progress = False
-        self.verbose=verbose
-        self.norm_y=norm_y
-        self.show_progress = show_progress
-        self.nsubjects = len(data)
-        self.mne_infos = [sub.info for sub in data]
-        self.nchannels = np.array([len(sub.info['ch_names']) for sub in data])
-        self.times = data[0].times # If Group: assume all subjects have the same times
+    Group Task Related Analysis (gTRCA) class.
+
+    Implemented according to the paper:
+    Tanaka, H. (2020). Group task-related component analysis (gTRCA): A multivariate method for inter-trial reproducibility and inter-subject similarity maximization for EEG data analysis. Scientific Reports, 10(1), 84. https://doi.org/10.1038/s41598-019-56962-2
+
+    This Python implementation was made by Couto, B.A.N. (2023)
+    Member of the Neuroengineering Lab from the Federal University of São Paulo.
+
+    For more information, see the documentation of the fit method.
+
+    Attributes:
+        times (numpy.ndarray): Time vector of the data.
+        infos (list of mne.Info): List of mne.Info objects of the data.
+        number_of_channels (int): Number of channels of the data.
+        number_of_trials (int): Number of trials of the data.
+        stimuli_onset (int): Onset of the stimuli in samples.
+        evokeds (numpy.ndarray): Evoked responses of the data.
+        mean_trials_covariances (numpy.ndarray): Mean trials covariance matrix of the data.
+        covariance_matrices (numpy.ndarray): Covariance matrices of the data.
+        s_matrix (numpy.ndarray): S matrix of the data.
+        eigenvalues (numpy.ndarray): Eigenvalues of the generalized eigenvalue problem.
+        eigenvectors (numpy.ndarray): Eigenvectors of the generalized eigenvalue problem.
+        data (numpy.ndarray): Data used to fit the gTRCA object.
+        components_with_fixed_orientation (numpy.ndarray): Indices of Components with fixed orientation.
+    """
+    def __init__(self):
+        self.times = None
+        self.infos = None
+        self.number_of_channels = None
+        self.number_of_trials = None
+        self.stimuli_onset = None
+        self.evokeds = None
+        self.mean_trials_covariances = None
+        self.covariance_matrices = None
+        self.s_matrix = None
+        self.eigenvalues = None
+        self.eigenvectors = None
+        self.data = None
+        self.components_with_fixed_orientation = None
+    
+    def fit(self, data, onset=0,
+                standardize=True,
+                reg=10**5,
+                verbose=True,
+                progress_bar=True):
+        """ Fits the gTRCA object to the data. Data must be a list of mne.Epochs(...) format.
+
+        Args:
+            data (list): List of mne.Epochs(...) to fit the gTRCA object to.
+            onset (float, optional) : Onset of the stimuli in seconds. Defaults to 0.
+            apply_normalization (bool, optional): Whether to apply normalization to the data. Defaults to True.
+            verbose (bool, optional): Whether to print out information. Defaults to False.
+        """
+        # Fetching Informations
+        self.components_with_fixed_orientation = []
+        self.infos = [sub.info for sub in data]
+        self.times = data[0].times
+        trial_duration = len(self.times)
+        self.stimuli_onset = data[0].time_as_index(onset)[0]
+
+        # Checking if all times match
         for sub in data:
             if np.any(sub.times != self.times):
-                raise Exception('Please use Epochs with same Time Window and sampling frequency.')
-        self.evt_onset = int(data[0].time_as_index(evt_onset))
-        self.tmin, self.tmax = self.times[0], self.times[-1]
-        self.nsamples = len(self.times)
-        self.epochs_data = self.group_to_array(data, norm_q)
-        self.u, self.v, self.q0, self.q = self.calculate_u_q(self.epochs_data)
-        self.s = self.calculate_s(self.epochs_data)
-        inv_q, self.Svd = self.apply_inverse_reg(reg)
-        self.eigenvalues, self.eigenvectors = self.apply_eigen_decomposition(inv_q,reg)
+                raise Exception('Please use same time window and sampling frequency for all subjects')
 
-    def proj(self, n_components=1, fix_orientation=True):
-        """proj
-        This function is used to project the data into the gTRCA space.
-        Args:
-            n_components (int): Number of components to project to.
+        # Fetching data
+        data = [cp.deepcopy(sub.get_data()) for sub in data]
+        self.number_of_trials = [np.shape(sub)[0] for sub in data]
+        self.number_of_channels = [np.shape(sub)[1] for sub in data]
 
-        Returns:
-            ydata (list of np.ndarray): List of Subjects Data projected into gTRCA space.
-            [(trials, n_components, tau),...,(n_components, trial, tau)]
-            maps (list of np.ndarray): List of Subjects Maps.
-            w (np.ndarray): Weights of the gTRCA components.
-        """
-        ydata, maps, w = self.project_results(self.epochs_data, components=n_components, norm_y=self.norm_y)
-        if fix_orientation:
-            ydata, maps, w = self.fix_ydata_orientation(ydata, maps, w)
+        # Applying Standardization
+        if verbose:
+            print('Applying Standardization...')
+        if standardize:
+            data = [self._apply_standardization(sub) for sub in data]
+        
+        # Making Evokeds (Uα)
+        if verbose:
+            print('Making Evokeds...')
+            if progress_bar:
+                self._print_progress_bar(0, len(data), prefix='U\u03B1:', suffix='Complete')
 
-        # Saving results
-        self.ydata = ydata
-        self.maps = maps
-        self.w = w
-        return ydata, maps, w
+        self.evokeds = []
+        for s, sub in enumerate(data):
+            if verbose and progress_bar:
+                self._print_progress_bar(s+1, len(data), prefix='U\u03B1:', suffix='Complete')
+            self.evokeds.append(np.mean(sub, axis=0))
 
-    def group_to_array(self, data, normalize_q=True):
-        """group_to_array
-        This function is used to convert a list of Subjects into a numpy array.
-        Args:
-            data (list of Subjects): List of MNE Epochs to apply gTRCA
+        # Calculating Mean Covariance Matrix (Vα)
+        if verbose:
+            print('Calculating Mean Covariance Matrix...')
+            if progress_bar:
+                self._print_progress_bar(0, len(data), prefix='V\u03B1:', suffix='Complete')
+        
+        self.mean_trials_covariances = []
+        for s, sub in enumerate(data):
+            if verbose and progress_bar:
+                self._print_progress_bar(s+1, len(data), prefix='V\u03B1:', suffix='Complete')
+            self.mean_trials_covariances.append(self._calculate_mean_trials_covariance(sub))
 
-        Returns:
-            epochs (list of np.ndarray): List of Subjects Data in np.ndarray format
-        """
-        if normalize_q:
-            if self.verbose:
-                print('Normalizing data...')
-            epochs=[]
-            for i, sub in enumerate(data):
-                if self.show_progress is True:
-                    print_progress_bar(i, len(data)-1)
-                sub = sub.get_data()
-                ntrials, nchs, tau = np.shape(sub) # (ntrials, nchs, tau)
-                for ch in range(nchs):
-                    sub[:,ch,:] = (sub[:,ch,:]-np.mean(sub[:,ch,:]))/np.std(sub[:,ch,:])
-                epochs.append(sub.data)
-        else:
-            epochs = [sub.get_data() for sub in data] # Get Epoches Data
-        return epochs
+        # Calculating Covariance Matrices (Qα)
+        if verbose:
+            print('Calculating Covariance Matrices...')
+            if progress_bar:
+                self._print_progress_bar(0, len(data), prefix='Q\u03B1:', suffix='Complete')
+        
+        self.covariance_matrices = []
+        for s, sub in enumerate(data):
+            if verbose and progress_bar:
+                self._print_progress_bar(s+1, len(data), prefix='Q\u03B1:', suffix='Complete')
+            self.covariance_matrices.append(self._calculate_covariance_matrix(sub))
 
-    def calculate_u_q(self, epochs):
-        """
-        This function is used to calculate the U and Q matrices.
-        Args:
-            epochs (list of np.ndarray): List of Subjects Data in np.ndarray format
-        Returns:
-            u (list of np.ndarray): List of U matrices.
-            v (list of np.ndarray): List of V matrices.
-            q0 (list of np.ndarray): List of Q0 matrices.
-            q (np.ndarray): Q matrix as diagonally concatenated Q0 matrices.
-        """
-        # Epochs (ntrials, nchs, tau)
-        u = []
-        v = []
-        q0 = []
-        q = np.zeros([np.sum(self.nchannels), np.sum(self.nchannels)])
-        if self.verbose:
-            print('Calculating U Matrix...')
-        for i, ep in enumerate(epochs):
-            ep = np.array(ep) # Retrieving from memory
-            if self.show_progress is True:
-                print_progress_bar(i, self.nsubjects-1)
-            raw = np.transpose(ep, (1,0,2)) # raw = channel x time x trial
-            raw = raw.reshape(np.shape(raw)[0], -1) # concatenating all trials, raw = channel x time
-            q0 += [(raw @ raw.T)/np.shape(raw)[1]]
-            u += [np.mean(ep, axis=0)]
-            ntrials = np.shape(ep)[0] # Searching for local Ntrials size
-            vsum = 0
-            for k in range(ntrials):
-                vsum += (ep[k,:,:] @ ep[k,:,:].T)
-            v += [vsum/ntrials]
-        if self.verbose:
-            print('Calculating Q Matrix...')
-        for n in range(self.nsubjects):
-            if self.show_progress is True:
-                print_progress_bar(n, self.nsubjects-1)
-            q[n*self.nchannels[n]:(n+1)*self.nchannels[n],
-              n*self.nchannels[n]:(n+1)*self.nchannels[n]] = q0[n]
-        return u, v, q0, q
-
-    def calculate_s(self, epochs):
-        """ This function is used to calculate the S matrix.
-        Args:
-            epochs (list of np.ndarray): List of Subjects Data in np.ndarray format
-        Returns:
-            s (np.ndarray): S matrix.
-        """
-        # computation of S and Q matrices:
-        s = np.zeros([np.sum(self.nchannels), np.sum(self.nchannels)])
-        if self.verbose:
+        # Calculating S Matrix
+        if verbose:
             print('Calculating S Matrix...')
-        count = 0
-        for a in range(self.nsubjects):
-            for b in range(self.nsubjects):
-                if self.show_progress is True:
-                    print_progress_bar(count, (self.nsubjects**2)-1)
-                count += 1
-                if a==b: # Diagonal
-                    ntrials = np.shape(epochs[a])[0]
-                    stmp = 2*(ntrials/((ntrials-1)*self.nsamples))* \
-                        ((self.u[a] @ self.u[a].T) - (self.v[a]/ntrials))
-                else: # Off-Diagonal
-                    stmp = 1/self.nsamples*(self.u[a] @ self.u[b].T)
-                s[a*self.nchannels[a]:(a+1)*self.nchannels[a],
-                  b*self.nchannels[b]:(b+1)*self.nchannels[b]] = stmp
-        return s
+        self.s_matrix = self._calculate_s_matrix(
+            self.evokeds,
+            self.mean_trials_covariances,
+            trial_duration,
+            self.number_of_trials,
+            self.number_of_channels,
+            verbose=verbose,
+            progress_bar=progress_bar
+            )
 
-    def regularize_matrix(self,S,reg):
-        """ This function is used to regularize the S matrix. It is useful for further matrix inverse operations.
+        # Applying Inverse Regularization
+        if verbose:
+            print('Applying Inverse Regularization...')
+        covariances_inverse, _ = self._apply_inverse_regularization(self.covariance_matrices, reg, verbose=verbose)
+
+        # Find Eigenvalues
+        if verbose:
+            print('Solving Eigenvalues and Eigenvectors...')
+        self.eigenvalues, self.eigenvectors = self._apply_eigen_decomposition(covariances_inverse @ self.s_matrix, reg, verbose=verbose)
+
+        # Saving data
+        self.data = data
+
+        # Printing out information
+        if verbose:
+            print(f'✅ gTRCA fitted to {len(data)} subjects')
+        return
+
+    def get_projections(self,
+                      component=0,
+                      subject='all',
+                      average=True,
+                      normalization_mode='group',
+                      normalization_window='baseline',
+                      verbose=False):
+        """ Returns projected data from subject.
+
+        Args:
+            component (int): Component to return.
+            subject (int): Subject to return component from.
+            average (bool): Whether to average the data across trials.
+            normalization_mode (str): Normalization mode to apply. Can be 'group', 'subject', or 'none'.
+            normalization_window (str): Normalization window to apply. Defaults to 'baseline'.
+                Can be 'baseline', None or list of two integers indicating which samples to use.
+
+        Returns:
+            projections (np.ndarray): Projected data. If average is True, shape is (n_subs, n_channels, n_times). Else, returns a list with each element representing a subject with sizes (n_trial, n_channel, n_times).
+            spatial_maps (np.ndarray): Spatial maps. Shape is (n_subs, n_channels)
+        """
+        if subject == 'all':
+            subjects = range(len(self.data))
+        else:
+            subjects = [subject]
+        
+        get_idx = lambda i: np.sum(self.number_of_channels[:i]) if i!=0 else 0
+
+        projections = []
+        spatial_maps = []
+
+        if verbose:
+            print(f'- Projecting Subject(s)...')
+        for s in subjects:
+            w = self.eigenvectors[get_idx(s):get_idx(s+1), component]
+            projection = [w.T @ self.data[s][trial,:,:] for trial in range(np.shape(self.data[s])[0])]
+            projection = np.array(projection)
+
+            # Creating Spatial Map
+            spatial_map = self.covariance_matrices[s] @ w
+
+            projections.append(projection)
+            spatial_maps.append(spatial_map)
+
+        # Applying Reorientation based on 1. GMFP and 2. Average Group Component
+        if component not in self.components_with_fixed_orientation:
+            if verbose:
+                print(f'- Applying Orientation...')
+            projections, spatial_maps = self._apply_components_orientation(projections, spatial_maps, component)
+            self.components_with_fixed_orientation.append(component)
+            if verbose:
+                print(f'- Component {component} Oriented.')
+
+        projections = self._apply_components_normalization(projections,
+                                                           mode=normalization_mode,
+                                                           window=normalization_window)
+
+        if average:
+            projections = np.array([np.mean(proj, axis=0) for proj in projections])
+
+        return projections, spatial_maps
+
+    def get_average_projection(self, component=0,
+                               normalization_mode='group',
+                               normalization_window='baseline',
+                               verbose=False):
+        """ Calculates the Group Average Component and Spatial Map
+            Args:
+                component (int, optional): What component to return. Defaults to 0.
+                normalization_mode (str, optional): Normalization mode to apply. Defaults to 'group'. Can be 'group', 'subject', or 'none'.
+                normalization_window (str, optional): Normalization window to apply. Defaults to 'baseline'. Can be 'baseline', None or list of two integers indicating which samples to use.
+                verbose (bool, optional): Whether to print out information. Defaults to False.
+            Returns:
+                projection (np.ndarray): Group Average Projection.
+                spatial_map (np.ndarray): Group Average Spatial Map.
+        """
+        projections, spatial_maps = self.get_projections(component,
+                                                         subject='all',
+                                                         average=True,
+                                                         normalization=normalization_mode,
+                                                         normalization_window=normalization_window,
+                                                         verbose=verbose
+                                                         )
+        projection = np.mean(projections, axis=0)
+        spatial_map = np.mean(spatial_maps, axis=0)
+        return projection, spatial_map
+
+    def project(self, new_subject, component=0,
+                average=True,
+                reg=10**5,
+                verbose=False):
+        """ Projects new subject data to the gTRCA space. """""" Projects new subject data to the gTRCA space.
+        
+        Args:
+            new_subject (mne.Epochs): New subject data to be projected.
+            component (int, optional): Component to project the data to. Defaults to 0.
+            verbose (bool, optional): Whether to print out information. Defaults to False.
+
+        Returns:
+
+        """
+        # Checking if Component was Correctly Orientated
+        if component not in self.components_with_fixed_orientation:
+            if verbose:
+                print(f'Warning: Component {component} was not oriented. Orientating now...')
+            _ = self.get_projections(component=component, subject='all', average=True, verbose=verbose)
+
+        # New subject and new subject Evoked (X_{A+1})):
+        new_subject = cp.deepcopy(new_subject.get_data())
+        new_subject = self._apply_standardization(new_subject)
+
+        # New subject Covariance Matrix (Q_{A+1}):
+        new_subject_cov = self._calculate_covariance_matrix(new_subject)
+        new_subject_cov_inv = self._apply_inverse_regularization([new_subject_cov], reg)[0]
+
+        # New subject filter (w_{A+1}):
+        get_idx = lambda i: np.sum(self.number_of_channels[:i]) if i!=0 else 0
+        get_filters = lambda i: self.eigenvectors[get_idx(i):get_idx(i+1), component]
+        
+        sum_of_filters_w = np.sum([(self.evokeds[i].T @ get_filters(i)) for i in range(len(self.data))], axis=0)
+        new_subject_w = (1/2*len(self.data)) * (new_subject_cov_inv @ np.mean(new_subject, axis=0)) @ sum_of_filters_w
+
+        # Projecting new subject (Y_{A+1}):
+        new_subject_projection = [new_subject_w.T @ new_subject[trial, :, :] for trial in range(np.shape(new_subject)[0])]
+        new_subject_projection = np.array(new_subject_projection)
+        new_subject_spatial_map = new_subject_cov @ new_subject_w
+
+        # Applying Normalization
+        new_subject_average = np.mean(new_subject_projection, axis=0)
+        for i in range(len(new_subject_projection)):
+            new_subject_projection[i] = (new_subject_projection[i]-np.mean(new_subject_projection[i]))/np.std(new_subject_average)
+
+        # Applying Reorientation
+        correlation = np.corrcoef(np.mean(new_subject_projection, axis=0), self.get_average_projection(component)[0])[0,1]
+        if correlation < 0:
+            new_subject_projection *= -1
+            new_subject_spatial_map *= -1
+            correlation *= -1
+        
+        # Averaging if necessary
+        if average:
+            new_subject_projection = np.mean(new_subject_projection, axis=0)
+
+        return new_subject_projection, new_subject_spatial_map, correlation
+
+    def reorientate_to_ref(self, component, ref, verbose=True):
+        """ Reorientates the components to a reference. """
+
+        # Checking if Component was Correctly Orientated
+        if component not in self.components_with_fixed_orientation:
+            if verbose:
+                print(f'Warning: Component {component} was not oriented. Orientating now...')
+            _ = self.get_projections(component=component, subject='all', average=True, normalization='none')
+
+        # Reorientating
+        if np.corrcoef(ref, self.get_average_projection(component=component)[0])[0,1] < 0:
+            self.eigenvectors[:, component] *= -1
+            if verbose:
+                print(f'- Component {component} Reoriented.')
+        else:
+            if verbose:
+                print(f'- Component {component} Already Correctly Oriented.')    
+        return
+
+    def run_surrogate(self, mode='trial', minjitter=0, maxjitter='nsamples'):
+        """ Runs a surrogate analysis to get the higher eigenvalue obtained with gTRCA.
+        
+        Args:
+            mode (str, optional): Surrogate mode to use. Defaults to 'trial'. Can be 'trial' or 'subject'.
+            minjitter (int, optional): Minimum jitter to use. Defaults to 0.
+            maxjitter (int, optional): Maximum jitter to use. Defaults to 'nsamples'.
+
+        Returns:
+            surrogate_eigenvalue (float): Higher eigenvalue obtained with gTRCA.
+        """
+        surrogate = self._build_surrogate(mode=mode, minjitter=minjitter, maxjitter=maxjitter)
+        surrogate_gtrca = gTRCA()
+        surrogate_gtrca.fit(surrogate, onset=self.times[self.stimuli_onset])
+        return surrogate_gtrca.eigenvalues[0]
+
+    def get_correlations(self, component=0,
+                         window=[None, None]):
+        """ Returns the time and spatial correlations for a given component and window, taking subjects pairwise.
+        
+        Args:
+            component (int, optional): Component to get the correlation for. Defaults to 0.
+            window (list, optional): Window to get the correlation for, in samples. Defaults to [None, None].
+
+        Returns:
+            corrs (np.array): Correlations between subjects projections.
+            maps_corrs (np.array): Correlations between subjects spatial maps.
+        """
+        y, maps = self.get_projections(component)
+        corrs = np.corrcoef(y[:, window[0]:window[1]])
+        maps_corrs = np.corrcoef(maps)
+        idxs = np.triu_indices(np.shape(corrs)[0], k=1)
+        return corrs[idxs], maps_corrs[idxs]
+
+    def _build_surrogate(self, mode='trial', minjitter=0, maxjitter='nsamples'):
+        """ Creates a surrogate of the data by shifting the data in time.
+            gTRCA must have been fitted with data before making surrogate.
+        
+        Args:
+            mode ('trial' or 'subject', optional): What mode to use: trial or subject-based shifting. Defaults to 'trial'.
+            minjitter (int, optional): Minimum jitter in samples. Defaults to 0.
+            maxjitter (int or 'nsamples', optional): Maximum jitter in samples. Defaults to 'nsamples'.
+        
+        Raises:
+            Please fit gTRCA to data before making surrogate:
+                Make sure that gTRCA has been fitted to data before making surrogate.
+            Please use same time window and sampling frequency for all subjects:
+                Make sure that all Epochs have the same time window and sampling frequency.
+            Please use a int as maxjitter of default 'nsamples':
+                Make sure that maxjitter is a int or 'nsamples'
+
+        Returns:
+            surrogate (list): Surrogated Data.
+        """
+        if self.data is None:
+            raise Exception('Please fit gTRCA to data before making surrogate.')
+        
+        # Setting max jitter
+        if maxjitter == 'nsamples':
+            maxjitter = len(self.times)
+        elif type(maxjitter)!=int:
+            raise Exception("Please use a int as maxjitter of default 'nsamples'")
+
+        # Creating Surrogate
+        surrogates = cp.deepcopy(self.data)
+        if mode == 'trial':
+            for i, sub in enumerate(self.data):
+                ntrials = np.shape(sub)[0]
+                jitters = np.random.randint(low=minjitter, high=maxjitter, size=ntrials)
+                for k in range(ntrials):
+                    jitter=jitters[k]
+                    surrogates[i][k,:,:] = np.roll(sub[k,:,:], jitter, axis=1)
+
+        elif mode == 'subject':
+            nsubs = len(self.data)
+            jitters = np.random.randint(low=minjitter, high=maxjitter, size=nsubs)
+            for i in range(len(self.data)):
+                surrogates[i] = np.roll(self.data[i], jitters[i], axis=2)
+
+        surrogates = [mne.EpochsArray(surr, self.infos[i], tmin=self.times[0], verbose=False) for i, surr in enumerate(surrogates)]
+        return surrogates
+    
+    def _calculate_mean_trials_covariance(self, subject):
+        """ Calculates the mean covariance matrix of the data.
+
+        Args:
+            data (np.ndarray): Data to calculate the mean covariance matrix of (trials, channels, samples).
+
+        Returns:
+            mean_trials_covariances (np.ndarray): Mean covariance matrix of the data.
+        """
+        ntrials = np.shape(subject)[0]
+        mean_trials_covariance = np.sum([subject[trial,:,:] @ subject[trial,:,:].T for trial in range(ntrials)], axis=0)
+        mean_trials_covariance = mean_trials_covariance/ntrials
+        return mean_trials_covariance
+
+    def _calculate_covariance_matrix(self, subject):
+        """ Concatenates Trials and calculates the covariance matrices of the data.
+
+        Args:
+            data (np.array): List of arrays to calculate the covariance matrices of. Arrays must be (trials, channels, samples).
+
+        Returns:
+            covariance_matrices (list): List of covariance matrices of the data.
+        """
+        continuous = self._build_continuous(subject)
+        covariance_matrix = (1/np.shape(continuous)[1])*(continuous @ continuous.T)
+        return covariance_matrix
+
+    def _calculate_s_matrix(self,
+                            evokeds,
+                            mean_trials_covariance,
+                            trial_duration,
+                            number_of_trials,
+                            number_of_channels,
+                            verbose=False,
+                            progress_bar=False):
+        """ Calculates the S Matrix of the data.
+
+        Args:
+            evokeds (list): List of evokeds of the data.
+            mean_trials_covariance (list): List of mean trials covariance matrices of the data.
+            trial_duration (int): Duration of each trial in samples.
+            number_of_trials (list): List of number of trials of the data.
+            number_of_channels (list): List of number of channels of the data.
+            verbose (bool, optional): Whether to print out information. Defaults to False.
+        """
+        s_size = np.sum(number_of_channels)
+        s_matrix = np.zeros((s_size, s_size))
+        get_idx = lambda i: np.sum(number_of_channels[:i]) if i!=0 else 0
+        if verbose and progress_bar:
+                self._print_progress_bar(0, len(evokeds), prefix='S\u03B1\u03B2:', suffix='Complete')
+        for a in range(len(evokeds)):
+            if verbose and progress_bar:
+                self._print_progress_bar(a+1, len(evokeds), prefix='S\u03B1\u03B2:', suffix='Complete')
+            for b in range(len(evokeds)):
+                if a == b:
+                    s_matrix[
+                        get_idx(a):get_idx(a+1),
+                        get_idx(b):get_idx(b+1)
+                        ] = 2*(number_of_trials[a]/((number_of_trials[a]-1)*trial_duration)) * \
+                            ((evokeds[a] @ evokeds[a].T) - \
+                              (1/number_of_trials[a])*mean_trials_covariance[a])
+                else:
+                    s_matrix[
+                        get_idx(a):get_idx(a+1),
+                        get_idx(b):get_idx(b+1)
+                    ] = (1/trial_duration) * (evokeds[a]@evokeds[b].T)
+        
+        return s_matrix
+
+    def _apply_standardization(self, subject):
+        """ Standardizes data so that channels get zero mean and unit std.
+
+        Args:
+            data (np.ndarray): Data to apply normalization to.
+
+        Returns:
+            data (np.ndarray): Normalized data.
+        """
+        # Reshape data to have shape (channels, trials*time)
+        subject_reshaped = np.transpose(subject, (1, 0, 2)).reshape(subject.shape[1], -1)
+
+        # Compute mean and std
+        mean = np.mean(subject_reshaped, axis=1, keepdims=True)
+        std = np.std(subject_reshaped, axis=1, keepdims=True)
+
+        # Standardize the data
+        subject_standardized = (subject_reshaped - mean) / std
+
+        # Reshape back to the original shape
+        subject_standardized = subject_standardized.reshape(subject.shape[1], subject.shape[0], subject.shape[2])
+
+        # Transpose back to original order
+        subject_standardized = np.transpose(subject_standardized, (1, 0, 2))
+
+        return subject_standardized
+
+    def _build_continuous(self, subject):
+        # Reshape data to have shape (channels, trials*time)
+        subject_reshaped = np.transpose(subject, (1, 0, 2)).reshape(subject.shape[1], -1)
+        return subject_reshaped
+
+    def _apply_inverse_regularization(self, data, reg, verbose=False):
+        """ This function regularizes a given matrix and calculates it's inverse.
+        Args:
+            data (np.array): List of matrix to be regularized and inverted.
+            reg (float): Regularization parameter.
+        Returns:
+            data_inverse (np.ndarray): Inverse of the Q matrix.
+            S (np.ndarray): S from SVD matrix.
+        """
+        data = scipy.linalg.block_diag(*data)
+        if verbose:
+            print('Regularizing via Ratio Eig > ('+str(reg)+')...')
+
+        U, S, V = np.linalg.svd(data)
+        reg_num = self._apply_regularization(S,reg)
+        data_inverse = (V[0:reg_num, :].T* (1./S[0:reg_num])) @ U[:, 0:reg_num].T
+        return data_inverse, S
+    
+    def _apply_regularization(self, S, reg):
+        """ This function is used to regularize the S matrix (from SVD).
+        It is useful for further matrix inverse operations.
         Args:
             S (np.ndarray): S matrix.
             reg (float): Regularization parameter.
         Returns:
             reg_num (int): Number of components to be used for regularization.
         """
-        eps=np.finfo(float).eps
-        ix1=np.where(np.abs(S)<1000*np.finfo(float).eps)[0] #removing null components
-        ix2 = np.where((S[0:-1]/(eps+S[1:]))>reg)[0] #cut-off based on eingenvalue ratios
-        ix=np.union1d(ix1,ix2)
+
+        eps = np.finfo(float).eps
+        ix1 = np.where(np.abs(S)<1000*np.finfo(float).eps)[0] # Removing null components
+        ix2 = np.where((S[0:-1]/(eps+S[1:]))>reg)[0] # Cut-off based on eingenvalue ratios
+        ix = np.union1d(ix1,ix2)
         if len(ix)==0:
             reg_num=len(S)
         else:
             reg_num=np.min(ix)
         return reg_num
+
+    def _apply_eigen_decomposition(self, data, reg, verbose=False):
+        """This function applies eigen decomposition on given data.
+            It also sort values in descending order and aplies regularization.
+
+        Args:
+            data (np.array): List of matrix to be regularized and inverted.
+            reg (float): Regularization parameter.
+
+        Returns:
+
+        """
+        eigenvalues, eigenvectors = np.linalg.eig(data)
+        idx = eigenvalues.argsort()[::-1]
+        eigenvalues = eigenvalues[idx]
+        eigenvectors = eigenvectors[:,idx]
+        reg_num = self._apply_regularization(abs(eigenvalues), reg)
+        eigenvalues = eigenvalues[0:reg_num]
+        eigenvectors = eigenvectors[:,0:reg_num]
+        if np.max(abs(np.imag(eigenvalues))) != 0:
+            print('Warning: There are imaginary parts in eigenvalues.')
+        return eigenvalues.real, eigenvectors.real
+
+    def _apply_components_orientation(self,
+                                        projections,
+                                        spatial_maps,
+                                        component,
+                                        verbose=False):
+        """ This function reorientates the components and spatial maps to have ensure they are positively correlated.
+
+        Args:
+            projections (np.ndarray): Projections to be reorientated.
+            spatial_maps (np.ndarray): Spatial maps to be reorientated.
+            component (int): Component to reorientate. Alterates saved eigenvectors.
+            verbose (bool, optional): Whether to print out information. Defaults to False.
+
+        Returns:
+            projections (np.ndarray): Reorientated projections.
+            spatial_maps (np.ndarray): Reorientated spatial maps.
+        """
+        # Trial by Trial
+        # First Direction: First Peak of GMFP
+        get_idx = lambda i: np.sum(self.number_of_channels[:i]) if i!=0 else 0
+        get_evoked = lambda a: np.mean(a, axis=0)
+        evokeds = [get_evoked(sub) for sub in projections]
+
+        # Calculate the global mean field power
+        gmfp = np.mean([abs(evk) for evk in evokeds], axis=0)
+        gmfp_peak, _ = scipy.signal.find_peaks(gmfp, distance=len(gmfp))
+        for i, evk in enumerate(evokeds):
+            if evk[gmfp_peak] < 0:
+                projections[i] *= -1
+                spatial_maps[i] *= -1
+                self.eigenvectors[get_idx(i):get_idx(i+1), component] *= -1
     
-    def apply_inverse_reg(self, reg):
-        """ This function is used to apply the inverse of the Q matrix.
-        Args:
-            reg (float): Regularization parameter.
-        Returns:
-            inv_q (np.ndarray): Inverse of the Q matrix.
-            S (np.ndarray): S from SVD matrix.
-        """
-        if self.verbose:
-            print('Regularizing via Ratio Eig > ('+str(reg)+')...')
-        U, S, V = np.linalg.svd(self.q)
-        reg_num = self.regularize_matrix(S,reg)
-        inv_q = (V[0:reg_num, :].T* (1./S[0:reg_num])) @ U[:, 0:reg_num].T
-        return inv_q, S
+        # Second Correction: Correlation with Group Average
+        evokeds = [get_evoked(sub) for sub in projections]
+        mean_component = np.mean(evokeds, axis=0)
+        for i, evk in enumerate(evokeds):
+            if np.corrcoef(evk, mean_component)[0,1]<0:
+                projections[i] *= -1
+                spatial_maps[i] *= -1
+                self.eigenvectors[get_idx(i):get_idx(i+1), component] *= -1
 
-    def apply_eigen_decomposition(self, inv_q,reg):
-        """ This function is used to apply the eigen decomposition of the S matrix.
-        Args:
-            inv_q (np.ndarray): Inverse of the S matrix.
-            reg (float): Regularization parameter.
-        Returns:
-            rho (np.ndarray): Eigenvalues of the S matrix.
-            vecs (np.ndarray): Eigenvectors of the S matrix.
-        """
-        M = inv_q @ self.s
-        rho, vecs = np.linalg.eig(M) 
-        indx=np.argsort(np.real(rho));indx=indx[-1::-1]
-        rho=rho[indx]
-        vecs=vecs[:,indx]
-        reg_num=self.regularize_matrix(np.abs(rho),reg)
-        rho=rho[0:reg_num]
-        vecs=vecs[:,0:reg_num]
-        if np.max(abs(np.imag(rho)))!=0:
-            raise NameError("Rho has complex values: check")
-        rho=np.real(rho)
-        vecs=np.real(vecs)
-        return rho, vecs
+        return projections, spatial_maps
 
-    def project_results(self, epochs=None, components=5, norm_y=True):
-        """ This function is used to project the results of the S matrix.
-        Args:
-            epochs (list of np.ndarray): List of Subjects Data in np.ndarray format
-            components (int): Number of components to be used for projection.
-            norm_y (bool): Normalize the y_data.
-        Returns:
-            w (list of np.ndarray): List of w vectors for each subject.
-            ydata (list of np.ndarray): List of y_data for each subject.
-            maps (list of np.ndarray): List of maps for each subject.
-            y1 (list of np.ndarray): List of y1 for each subject.
-        """
-        if self.verbose:
-            print('Projecting Results...')
-        nsubs = self.nsubjects
-        tau = self.nsamples
-        w = [[]]*nsubs
-        ydata = [[]]*nsubs
-        maps = [[]]*nsubs
-        y1 = [[]]*nsubs
-        if components>0:
-            for i, ep in enumerate(epochs):
-                ep = np.array(ep)
-                nchs = self.nchannels[i]
-                ntrials, _, _ = np.shape(ep)
-                # Vectors for each subject
-                w[i] = np.zeros([components, nchs])
-                for c in range(components):
-                    w[i][c,:] = self.eigenvectors[i*nchs:(i+1)*nchs, c]
+    def _apply_components_normalization(self, data,
+                                        mode='group',
+                                        window='baseline'):
+            """ Applies component normalization.
+
+            Args:
+                data (np.ndarray): Data to apply normalization to.
+                mode (str, optional): Whether to apply normalization on 'group' or 'subject' level. Defaults to 'group'.
+                window (str, optional): Window to apply normalization on, in samples. Defaults to 'baseline'. If None, applies on whole data.
+            
+            Returns:
+                data (np.ndarray): Normalized data.
+            """
+            get_evoked = lambda a: np.mean(a, axis=0)
+            
+            if mode == 'group':
+                # Group Average
+                group_average = np.mean(np.array([get_evoked(projection) for projection in data]), axis=0)
                 
-                # Building y_data
-                ydata[i] = np.zeros([components, ntrials, tau])
-                for c in range(components):
-                    for k in range(ntrials):
-                        ydata[i][c,k,:] = w[i][c,:].T @ ep[k,:,:]
-                
+                # Group Standard Deviation on chosen window
+                if window == 'baseline':
+                    group_average = group_average[:self.stimuli_onset]
+                elif window is None:
+                    pass
+                else:
+                    group_average = group_average[window[0]:window[1]]
+
                 # Normalization
-                if norm_y:
-                    for c in range(components):
-                        cmean = np.mean(np.mean(ydata[i][c,:,:self.evt_onset], axis=0)) # Evoked Baseline Mean
-                        cstd = np.std(np.mean(ydata[i][c,:,:], axis=0)) # Evoked Std
-                        ydata[i][c,:,:] = (ydata[i][c,:,:]-cmean)/cstd
+                group_std = np.std(group_average)
+                for i, projection in enumerate(data):
+                    for j, trial in enumerate(projection):
+                        data[i][j,:] = (trial - np.mean(trial)) / group_std
 
-                # Creting Scalp Maps
-                y1[i] = np.zeros([components, tau])
-                maps[i] = np.zeros([components, nchs])
-                for c in range(components):
-                    maps[i][c,:] = self.q0[i] @ w[i][c,:]
-                
-           # maps = np.real(maps) Unnecessary
-            if self.verbose:
-                print('Done!')
-        else:
-            print('No significant components')
-        return ydata, maps, w
+            elif mode == 'subject':
+                for i, projection in enumerate(data):
+                    # Subject Average
+                    subject_average = get_evoked(projection)
 
-    def fix_ydata_orientation(self, ydata, maps, w):
-        """ This function is used to fix the orientation of the y_data.
-            It is used to make sure that the y_data is always positive on the first peak of GMFP.
-            If the previous results in a negative correlation with the mean, it is fliped.
+                    # Subject Standard Deviation on chosen window
+                    if window == 'baseline':
+                        subject_average = subject_average[:self.stimuli_onset]
+                    elif window is None:
+                        pass
+                    else:
+                        subject_average = subject_average[window[0]:window[1]]
+                    subject_std = np.std(subject_average)
+                    
+                    # Normalization
+                    for j, trial in enumerate(projection):
+                        data[i][j,:] = (trial - np.mean(trial)) / subject_std
+
+            # No normalization 
+            elif mode == 'none':
+                pass
+            else:
+                raise Exception('Please choose a valid normalization method.')
+            return data
+
+    def _print_progress_bar(self, iteration, total, prefix = '', suffix = '', decimals = 1, length = 15, fill = '█'):
         """
-        n_components = np.shape(ydata[0])[0]
-        ynorm = [np.zeros([n_components, self.nsamples])]*self.nsubjects
-        for c in range(n_components):
-            ynorm = [np.mean(y[c,:,:], axis=0) for y in ydata]
-            ynorm = [(y-np.mean(y))/np.std(y) for y in ynorm]
-            mean_abs = [np.abs(y) for y in ynorm]
-            mean_abs = np.mean(np.array(mean_abs),axis=0)
-            peak, _ = scipy.signal.find_peaks(mean_abs, distance=len(mean_abs))
-            # First fix: based on first peak of GMFP
-            for i in range(len(ydata)):
-                peak_sig = np.sign(ynorm[i][peak])
-                ydata[i][c,:,:] = peak_sig*ydata[i][c,:,:]
-                maps[i][c,:] = peak_sig*maps[i][c,:]
-                w[i][c,:] = peak_sig*w[i][c,:]
-            # Second fix: based on correlation with the mean. Useful when first correction is not enough.
-            # Weak components may have a negative correlation with the mean, so we flip them.
-            for i in range(len(ydata)):
-                corr = np.corrcoef(np.mean(ydata[i][c,:,:],axis=0),
-                                   np.mean(np.array([np.mean(y[c,:,:],axis=0) for y in ydata]), axis=0))[0,1] # Mean of all subs ydata
-                if corr < 0:
-                    ydata[i][c,:,:] = -ydata[i][c,:,:]
-                    maps[i][c,:] = -maps[i][c,:]
-                    w[i][c,:] = -w[i][c,:]
-        return ydata, maps, w
-
-    def fit(self, new_epoch, return_correlation=False,
-            component=0, weights=None, reg=10**5,
-            correlation_times=[None,None]):
-        """ This function is used to fit a new subject to the model.
-        Args:
-            new_epoch (mne.Epochs): New subject data in mne.Epochs format.
-            component (int): Component to be used for fitting.
-            return_correlation (bool): Return only the correlation between the new subject and the model. Defaults to False.
-            weights (np.ndarray): Weights to be used for fitting. If None, the weights from the last projection will be used.
-        Returns:
-            y (np.ndarray): y for the new subject.
-            w (np.ndarray): w for the new subject.
-            map (np.ndarray): map for the new subject.
+        Call in a loop to create terminal progress bar
+        @params:
+            iteration   - Required  : current iteration (Int)
+            total       - Required  : total iterations (Int)
+            prefix      - Optional  : prefix string (Str)
+            suffix      - Optional  : suffix string (Str)
+            decimals    - Optional  : positive number of decimals in percent complete (Int)
+            length      - Optional  : character length of bar (Int)
+            fill        - Optional  : bar fill character (Str)
         """
-
-        try:
-            if weights == None:
-                weights = self.w
-        except:
-            raise Exception('No weights provided. Please make a projection first or provide weights.')
-
-        # Get new subject data
-        new_sub = new_epoch.get_data()
-        ntrials, nchannels, nsamples = np.shape(new_sub)
-
-        # Covariance Matrix
-        continuous = np.concatenate([new_sub[i,:,:] for i in range(ntrials)], axis=1)
-        q_new = (1/nsamples)*(continuous@continuous.T)
-
-        # Making inverse of q matrix with regularization
-        U, S, V = np.linalg.svd(q_new)
-        reg_num = self.regularize_matrix(S, reg)
-        inv_q_new = (V[0:reg_num, :].T* (1./S[0:reg_num])) @ U[:, 0:reg_num].T
-
-        # Weights
-        mean_weight = np.mean(weights, axis=0)
-        sum_weights = [self.u[i].T @ weights[i][component,:] for i in range(self.nsubjects)]
-        sum_weights = np.sum(sum_weights, axis=0)
-
-        # New Weights
-        w = (1/2*self.nsubjects) * (inv_q_new @ np.mean(new_sub, axis=0)) @ sum_weights
-
-        y = np.array([w.T @ new_sub[i,:,:] for i in range(ntrials)])
-        if ntrials != 1:
-            y = y/np.std(np.mean(y, axis=0)) # Normalization
-            y = y
-            mean_y = np.mean(y, axis=0)
-        else:
-            y = y[component,:]
-            y = y/np.std(y)
-            mean_y = y
-
-        map = q_new @ w
-
-        # Fixing Polarity
-        mean_ydata = np.mean([np.mean(ydata[component,:,:], axis=0) for ydata in self.ydata], axis=0)
-        mean_map = np.mean([map[component, :] for map in self.maps], axis=0)
-
-        # Chosing times for correlation: [tc0, tc1]
-        time_corr = np.corrcoef(mean_y, mean_ydata)[0,1]
-        if time_corr < 0:
-            y = -y
-            mean_y = -mean_y
-            map = -map
-            time_corr = -time_corr
-        
-        # Chosing times for correlation: [tc0, tc1]
-        time_corr = np.corrcoef(mean_y[correlation_times[0]:correlation_times[1]],
-                                mean_ydata[correlation_times[0]:correlation_times[1]])[0,1]
-        
-        if return_correlation:
-            map_corr = np.corrcoef(map, mean_map)[0,1]
-            return time_corr, map_corr
-        else:
-            return y, map, w
-
-# ADD:
-# gtrca_surr() -> minimal gtrca, only for extracting first eigenvalue
+        percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
+        filledLength = int(length * iteration // total)
+        bar = fill * filledLength + '-' * (length - filledLength)
+        print('\r%s |%s| %s%% %s' % (prefix, bar, percent, suffix), end = '\r')
+        # Print New Line on Complete
+        if iteration == total: 
+            print()
