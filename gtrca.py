@@ -13,7 +13,201 @@ import numpy as np
 import scipy
 import copy as cp
 
-#  gTRCA
+# TRCA
+class TRCA():
+    """ Task Related Component Analysis (TRCA) is a method for extracting maximally reproducible components within a subject.
+    
+    Implemented according to the paper:
+    Tanaka, H. (2020). Group task-related component analysis (gTRCA): A multivariate method for inter-trial reproducibility and inter-subject similarity maximization for EEG data analysis. Scientific Reports, 10(1), 84. https://doi.org/10.1038/s41598-019-56962-2
+
+    But adapted for Evoked Potentials that are already segmented and with a 'subject' surrogate method that allows for a more robust statistical analysis for groups.
+
+    This Python implementation was made by Couto, B.A.N. (2023)
+    Member of the Neuroengineering Lab from the Federal University of São Paulo.
+
+    For more information, see the documentation of the fit method.
+
+    Attributes:
+        S (np.ndarray): S matrix as in paper.
+        Q (np.ndarray): Covariance Matrix as in paper.
+        U (np.ndarray): Evoked Reponse.
+        V (np.ndarray): Mean Covariance Matrix (trial-wise).
+        eigenvectors (np.ndarray): Eigenvectors of the (Q^-1@S) matrix.
+        eigenvalues (np.ndarray): Eigenvalues of the (Q^-1@S) matrix.
+        data (np.ndarray): Data used for fitting.
+        info (mne.Info): Info from the epochs.
+    """
+
+    def __init__(self):
+        self.S = None
+        self.Q = None
+        self.U = None
+        self.V = None
+        self.eigenvectors = None
+        self.eigenvalues = None
+        self.data = None
+        self.info = None
+    
+    def fit(self, epochs, reg=10**5, verbose=True):
+        """ Fits the TRCA model to the given epochs.
+        Args:
+            epochs (mne.Epochs): Epochs to be fitted.
+            reg (float): Regularization parameter.
+        """
+
+        self.info = epochs.info
+        data = epochs.get_data()
+        # Normalize each channel to have zero mean and unit variance
+        data = self._apply_normalization(data)
+        self.data = data
+        self.Q = self._calculate_Q(data)
+        self.U = self._calculate_U(data)
+        self.V = self._calculate_V(data)
+        self.S = self._calculate_S(data, self.U, self.V)
+        inv_q, _ = self._apply_inverse_regularization(self.Q, reg, verbose=verbose)
+        eigenvalues, eigenvectors = np.linalg.eig(inv_q @ self.S)
+
+        # Sort eigenvectors by eigenvalues
+        idx = eigenvalues.argsort()[::-1]
+        eigenvalues = eigenvalues[idx]
+        eigenvectors = eigenvectors[:,idx]
+
+        self.eigenvectors = eigenvectors
+        self.eigenvalues = eigenvalues
+
+        if verbose:
+            print(' Done fitting TRCA! ✅')
+
+    def get_components(self, component='all', average=True):
+        """ Returns the components of the fitted TRCA model.
+        Args:
+            component (int): Component to be returned. If 'all', returns all components.
+            average (bool): If True, returns the average of all trials.
+        Returns:
+            y (np.ndarray): Component(s) of the fitted TRCA model.
+            maps (np.ndarray): Spatial maps of the component(s).
+        """
+
+        if component == 'all':
+            y = self.eigenvectors.T @ self.data
+            mean_data = np.mean(self.data, axis=0)
+            mean_data = abs(mean_data)
+            mean_data = np.sum(mean_data, axis=0)
+            for c in range(y.shape[1]):
+                avg_y = np.mean(y[:,c,:], axis=0)
+                sign = np.sign(np.corrcoef(avg_y, mean_data)[0, 1])
+                y[c,:] = sign * y[c,:]
+                self.eigenvectors[:,c] = sign * self.eigenvectors[:,c]
+            maps = self.Q @ self.eigenvectors
+        else:
+            y = self.eigenvectors[:,component].T @ self.data
+            mean_data = np.mean(self.data, axis=0)
+            mean_data = abs(mean_data)
+            mean_data = np.sum(mean_data, axis=0)
+            avg_y = np.mean(y, axis=0)
+            sign = np.sign(np.corrcoef(avg_y, mean_data)[0, 1])
+            y = sign * y
+            self.eigenvectors[:,component] = sign * self.eigenvectors[:,component]
+            maps = self.Q @ self.eigenvectors[:,component]
+        if average:
+            y = np.mean(y, axis=0)
+        return y, maps
+
+    def run_surrogate(self, min_jitter=0, max_jitter='nsamples', verbose=False):
+        """ Runs a surrogate analysis on the fitted TRCA model.
+        Args:
+            min_jitter (int): Minimum jitter to be applied to the data.
+            max_jitter (int): Maximum jitter to be applied to the data. If 'nsamples', max_jitter is set to the number of samples.
+        Returns:
+            eigenvalue (np.ndarray): First eigenvalue from surrogate TRCA.
+        """
+
+        surrogate = self.data.copy()
+        ntrials, nchannels, nsamples = surrogate.shape
+        if max_jitter == 'nsamples':
+            max_jitter = nsamples
+        
+        for trial in range(ntrials):
+            jitter = np.random.randint(min_jitter, max_jitter)
+            surrogate[trial,:,:] = np.roll(surrogate[trial,:,:], jitter, axis=1)
+
+        surrogate = mne.EpochsArray(surrogate, self.info, verbose=False)
+        surr_trca = TRCA()
+        surr_trca.fit(surrogate, verbose=verbose)
+        return surr_trca.eigenvalues[0]
+
+    def _calculate_Q(self, data):
+        # Concatenate all trials so that we can calculate covariance matrix
+        # Data should be concatenated along the last axis
+        continuous = data.copy()
+        ntrials, nchannels, nsamples = continuous.shape
+        continuous = np.concatenate(continuous, axis=-1)
+        Q = (1/ntrials)*(continuous @ continuous.T)
+        return Q
+        
+    def _apply_normalization(self, data):
+        # Normalize each channel to have zero mean and unit variance
+        data = (data - np.mean(data, axis=2, keepdims=True)) / np.std(data, axis=2, keepdims=True)
+        return data
+    
+    def _calculate_U(self, data):
+        data = data.copy()
+        U = np.mean(data, axis=0)
+        return U
+    
+    def _calculate_V(self, data):
+        data = data.copy()
+        ntrials, nchannels, nsamples = data.shape
+        V = np.zeros((nchannels, nchannels))
+        for trial in data:
+            V += trial @ trial.T
+        V = (1/ntrials)*V
+        return V
+
+    def _calculate_S(self, data, U, V):
+        data = data.copy()
+        ntrials, nchannels, nsamples = data.shape
+        S = (1/((ntrials-1)*nsamples)) * ((U@U.T) - ((1/ntrials)*V))
+        return S
+    
+    def _apply_inverse_regularization(self, data, reg, verbose=False):
+        """ This function regularizes a given matrix and calculates it's inverse.
+        Args:
+            data (np.array): List of matrix to be regularized and inverted.
+            reg (float): Regularization parameter.
+        Returns:
+            data_inverse (np.ndarray): Inverse of the Q matrix.
+            S (np.ndarray): S from SVD matrix.
+        """
+        if verbose:
+            print('Regularizing via Ratio Eig > ('+str(reg)+')...')
+
+        U, S, V = np.linalg.svd(data)
+        reg_num = self._apply_regularization(S,reg)
+        data_inverse = (V[0:reg_num, :].T* (1./S[0:reg_num])) @ U[:, 0:reg_num].T
+        return data_inverse, S
+    
+    def _apply_regularization(self, S, reg):
+        """ This function is used to regularize the S matrix (from SVD).
+        It is useful for further matrix inverse operations.
+        Args:
+            S (np.ndarray): S matrix.
+            reg (float): Regularization parameter.
+        Returns:
+            reg_num (int): Number of components to be used for regularization.
+        """
+
+        eps = np.finfo(float).eps
+        ix1 = np.where(np.abs(S)<1000*np.finfo(float).eps)[0] # Removing null components
+        ix2 = np.where((S[0:-1]/(eps+S[1:]))>reg)[0] # Cut-off based on eingenvalue ratios
+        ix = np.union1d(ix1,ix2)
+        if len(ix)==0:
+            reg_num=len(S)
+        else:
+            reg_num=np.min(ix)
+        return reg_num
+
+# gTRCA
 class gTRCA():
     """
     Group Task Related Analysis (gTRCA) class.
