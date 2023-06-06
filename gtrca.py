@@ -1,10 +1,10 @@
 # ---------------------------------------------------------------------------
-# gTRCA for Evoked Potentials
+# TRCA and gTRCA for Evoked Potentials
 # File: gtrca.py
 # Version: 1.0.0
 # Author: Couto, B.A.N. (2023). Member of the Neuroengineering Lab from the Federal University of São Paulo.
-# Date: 2023-05-27
-# Description: Group Task Related Component Analysis (gTRCA) adapted for Evoked Potentials.
+# Date: 2023-06-06
+# Description: Task Related Component Analysis (TRCA) and Group Task Related Component Analysis (gTRCA) adapted for Evoked Potentials.
 # ---------------------------------------------------------------------------
 
 # Imports
