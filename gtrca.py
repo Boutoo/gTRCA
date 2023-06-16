@@ -11,6 +11,9 @@
 import mne
 import numpy as np
 import scipy
+import scipy.linalg
+import scipy.signal
+
 import copy as cp
 
 # TRCA
@@ -238,19 +241,28 @@ class gTRCA():
         components_with_fixed_orientation (numpy.ndarray): Indices of Components with fixed orientation.
     """
     def __init__(self):
+        # Fitted Data
         self.times = None
         self.infos = None
         self.number_of_channels = None
         self.number_of_trials = None
         self.stimuli_onset = None
+        self.data = None
         self.evokeds = None
+        self.reg = None
+
+        # Important Matrices
         self.mean_trials_covariances = None
         self.covariance_matrices = None
         self.s_matrix = None
+
+        # gTRCA
         self.eigenvalues = None
         self.eigenvectors = None
-        self.data = None
-        self.components_with_fixed_orientation = None
+
+        # Alterations
+        self.shifts = None
+        self.drop_subjects = None
     
     def fit(self, data, onset=0,
                 standardize=True,
@@ -269,7 +281,7 @@ class gTRCA():
         self.components_with_fixed_orientation = []
         self.infos = [sub.info for sub in data]
         self.times = data[0].times
-        trial_duration = len(self.times)
+        self.reg = reg
         self.stimuli_onset = data[0].time_as_index(onset)[0]
 
         # Checking if all times match
@@ -287,80 +299,27 @@ class gTRCA():
             print('Applying Standardization...')
         if standardize:
             data = [self._apply_standardization(sub) for sub in data]
-        
-        # Making Evokeds (Uα)
-        if verbose:
-            print('Making Evokeds...')
-            if progress_bar:
-                self._print_progress_bar(0, len(data), prefix='U\u03B1:', suffix='Complete')
-
-        self.evokeds = []
-        for s, sub in enumerate(data):
-            if verbose and progress_bar:
-                self._print_progress_bar(s+1, len(data), prefix='U\u03B1:', suffix='Complete')
-            self.evokeds.append(np.mean(sub, axis=0))
-
-        # Calculating Mean Covariance Matrix (Vα)
-        if verbose:
-            print('Calculating Mean Covariance Matrix...')
-            if progress_bar:
-                self._print_progress_bar(0, len(data), prefix='V\u03B1:', suffix='Complete')
-        
-        self.mean_trials_covariances = []
-        for s, sub in enumerate(data):
-            if verbose and progress_bar:
-                self._print_progress_bar(s+1, len(data), prefix='V\u03B1:', suffix='Complete')
-            self.mean_trials_covariances.append(self._calculate_mean_trials_covariance(sub))
-
-        # Calculating Covariance Matrices (Qα)
-        if verbose:
-            print('Calculating Covariance Matrices...')
-            if progress_bar:
-                self._print_progress_bar(0, len(data), prefix='Q\u03B1:', suffix='Complete')
-        
-        self.covariance_matrices = []
-        for s, sub in enumerate(data):
-            if verbose and progress_bar:
-                self._print_progress_bar(s+1, len(data), prefix='Q\u03B1:', suffix='Complete')
-            self.covariance_matrices.append(self._calculate_covariance_matrix(sub))
-
-        # Calculating S Matrix
-        if verbose:
-            print('Calculating S Matrix...')
-        self.s_matrix = self._calculate_s_matrix(
-            self.evokeds,
-            self.mean_trials_covariances,
-            trial_duration,
-            self.number_of_trials,
-            self.number_of_channels,
-            verbose=verbose,
-            progress_bar=progress_bar
-            )
-
-        # Applying Inverse Regularization
-        if verbose:
-            print('Applying Inverse Regularization...')
-        covariances_inverse, _ = self._apply_inverse_regularization(self.covariance_matrices, reg, verbose=verbose)
-
-        # Find Eigenvalues
-        if verbose:
-            print('Solving Eigenvalues and Eigenvectors...')
-        self.eigenvalues, self.eigenvectors = self._apply_eigen_decomposition(covariances_inverse @ self.s_matrix, reg, verbose=verbose)
 
         # Saving data
         self.data = data
+        self.shifts = [np.zeros(sub.shape[0], dtype=int) for sub in data]
+
+        # Calculating Matrices and Applying gTRCA
+        _ = self._calculate_matrices(reg=self.reg, verbose=verbose, progress_bar=progress_bar)
+
+        _ = self._apply_gtrca(reg=self.reg, verbose=verbose)
 
         # Printing out information
         if verbose:
             print(f'✅ gTRCA fitted to {len(data)} subjects')
         return
 
-    def get_projections(self,
+    def get_component(self,
                       component=0,
                       subject='all',
                       average=True,
-                      normalization_mode='group',
-                      normalization_window='baseline',
+                      normalization_mode='subject',
+                      normalization_window=None,
                       verbose=False):
         """ Returns projected data from subject.
 
@@ -368,8 +327,8 @@ class gTRCA():
             component (int): Component to return.
             subject (int): Subject to return component from.
             average (bool): Whether to average the data across trials.
-            normalization_mode (str): Normalization mode to apply. Can be 'group', 'subject', or 'none'.
-            normalization_window (str): Normalization window to apply. Defaults to 'baseline'.
+            normalization_mode (str): Normalization mode to apply. Defaults to 'subject'. Can be 'group', 'subject', or 'none'.
+            normalization_window (str): Normalization window to apply. Defaults to None.
                 Can be 'baseline', None or list of two integers indicating which samples to use.
 
         Returns:
@@ -400,14 +359,12 @@ class gTRCA():
             spatial_maps.append(spatial_map)
 
         # Applying Reorientation based on 1. GMFP and 2. Average Group Component
-        if component not in self.components_with_fixed_orientation:
-            if verbose:
-                print(f'- Applying Orientation...')
-            projections, spatial_maps = self._apply_components_orientation(projections, spatial_maps, component)
-            self.components_with_fixed_orientation.append(component)
-            if verbose:
-                print(f'- Component {component} Oriented.')
+        if verbose:
+            print(f'- Checking Orientation...')
+        projections, spatial_maps = self._apply_components_orientation(projections, spatial_maps, component)
 
+        if verbose:
+            print(f'- Applying Normalization...')
         projections = self._apply_components_normalization(projections,
                                                            mode=normalization_mode,
                                                            window=normalization_window)
@@ -417,21 +374,21 @@ class gTRCA():
 
         return projections, spatial_maps
 
-    def get_average_projection(self, component=0,
-                               normalization_mode='group',
-                               normalization_window='baseline',
+    def get_average_component(self, component=0,
+                               normalization_mode='subject',
+                               normalization_window=None,
                                verbose=False):
         """ Calculates the Group Average Component and Spatial Map
             Args:
                 component (int, optional): What component to return. Defaults to 0.
-                normalization_mode (str, optional): Normalization mode to apply. Defaults to 'group'. Can be 'group', 'subject', or 'none'.
-                normalization_window (str, optional): Normalization window to apply. Defaults to 'baseline'. Can be 'baseline', None or list of two integers indicating which samples to use.
+                normalization_mode (str, optional): Normalization mode to apply. Defaults to 'subject'. Can be 'group', 'subject', or 'none'.
+                normalization_window (str, optional): Normalization window to apply. Defaults to None. Can be 'baseline', None or list of two integers indicating which samples to use.
                 verbose (bool, optional): Whether to print out information. Defaults to False.
             Returns:
                 projection (np.ndarray): Group Average Projection.
                 spatial_map (np.ndarray): Group Average Spatial Map.
         """
-        projections, spatial_maps = self.get_projections(component,
+        projections, spatial_maps = self.get_component(component,
                                                          subject='all',
                                                          average=True,
                                                          normalization_mode=normalization_mode,
@@ -530,10 +487,16 @@ class gTRCA():
         Returns:
             surrogate_eigenvalue (float): Higher eigenvalue obtained with gTRCA.
         """
-        surrogate = self._build_surrogate(mode=mode, minjitter=minjitter, maxjitter=maxjitter)
-        surrogate_gtrca = gTRCA()
-        surrogate_gtrca.fit(surrogate, onset=self.times[self.stimuli_onset])
-        return surrogate_gtrca.eigenvalues[0]
+        self._shift_data(mode=mode, minjitter=minjitter, maxjitter=maxjitter)
+        _ = self._calculate_matrices(reg=self.reg, verbose=False)
+        _ = self._apply_gtrca(reg=self.reg, verbose=False)
+        return self.eigenvalues[0]
+
+    def reset(self):
+        self._unshift_data()
+        self._calculate_matrices(reg=self.reg)
+        self._apply_gtrca(reg=self.reg)
+        print('Done resetting changes! ✅')
 
     def get_correlations(self, component=0,
                          window=[None, None]):
@@ -553,54 +516,74 @@ class gTRCA():
         idxs = np.triu_indices(np.shape(corrs)[0], k=1)
         return corrs[idxs], maps_corrs[idxs]
 
-    def _build_surrogate(self, mode='trial', minjitter=0, maxjitter='nsamples'):
-        """ Creates a surrogate of the data by shifting the data in time.
-            gTRCA must have been fitted with data before making surrogate.
+    def _calculate_matrices(self, reg, verbose=True, progress_bar=True):
+        trial_duration = len(self.times)
+
+        # Making Evokeds (Uα)
+        if verbose:
+            print('Making Evokeds...')
+            if progress_bar:
+                self._print_progress_bar(0, len(self.data), prefix='U\u03B1:', suffix='Complete')
+
+        self.evokeds = []
+        for s, sub in enumerate(self.data):
+            if verbose and progress_bar:
+                self._print_progress_bar(s+1, len(self.data), prefix='U\u03B1:', suffix='Complete')
+            self.evokeds.append(np.mean(sub, axis=0))
+
+        # Calculating Mean Covariance Matrix (Vα)
+        if verbose:
+            print('Calculating Mean Covariance Matrix...')
+            if progress_bar:
+                self._print_progress_bar(0, len(self.data), prefix='V\u03B1:', suffix='Complete')
         
-        Args:
-            mode ('trial' or 'subject', optional): What mode to use: trial or subject-based shifting. Defaults to 'trial'.
-            minjitter (int, optional): Minimum jitter in samples. Defaults to 0.
-            maxjitter (int or 'nsamples', optional): Maximum jitter in samples. Defaults to 'nsamples'.
+        self.mean_trials_covariances = []
+        for s, sub in enumerate(self.data):
+            if verbose and progress_bar:
+                self._print_progress_bar(s+1, len(self.data), prefix='V\u03B1:', suffix='Complete')
+            self.mean_trials_covariances.append(self._calculate_mean_trials_covariance(sub))
+
+        # Calculating Covariance Matrices (Qα)
+        if verbose:
+            print('Calculating Covariance Matrices...')
+            if progress_bar:
+                self._print_progress_bar(0, len(self.data), prefix='Q\u03B1:', suffix='Complete')
         
-        Raises:
-            Please fit gTRCA to data before making surrogate:
-                Make sure that gTRCA has been fitted to data before making surrogate.
-            Please use same time window and sampling frequency for all subjects:
-                Make sure that all Epochs have the same time window and sampling frequency.
-            Please use a int as maxjitter of default 'nsamples':
-                Make sure that maxjitter is a int or 'nsamples'
+        self.covariance_matrices = []
+        for s, sub in enumerate(self.data):
+            if verbose and progress_bar:
+                self._print_progress_bar(s+1, len(self.data), prefix='Q\u03B1:', suffix='Complete')
+            self.covariance_matrices.append(self._calculate_covariance_matrix(sub))
 
-        Returns:
-            surrogate (list): Surrogated Data.
-        """
-        if self.data is None:
-            raise Exception('Please fit gTRCA to data before making surrogate.')
+        # Calculating S Matrix
+        if verbose:
+            print('Calculating S Matrix...')
+        self.s_matrix = self._calculate_s_matrix(
+            self.evokeds,
+            self.mean_trials_covariances,
+            trial_duration,
+            self.number_of_trials,
+            self.number_of_channels,
+            verbose=verbose,
+            progress_bar=progress_bar
+            )
         
-        # Setting max jitter
-        if maxjitter == 'nsamples':
-            maxjitter = len(self.times)
-        elif type(maxjitter)!=int:
-            raise Exception("Please use a int as maxjitter of default 'nsamples'")
+        return # (U,V,Q,S)
 
-        # Creating Surrogate
-        surrogates = cp.deepcopy(self.data)
-        if mode == 'trial':
-            for i, sub in enumerate(self.data):
-                ntrials = np.shape(sub)[0]
-                jitters = np.random.randint(low=minjitter, high=maxjitter, size=ntrials)
-                for k in range(ntrials):
-                    jitter=jitters[k]
-                    surrogates[i][k,:,:] = np.roll(sub[k,:,:], jitter, axis=1)
+    def _apply_gtrca(self, reg, verbose=True):
 
-        elif mode == 'subject':
-            nsubs = len(self.data)
-            jitters = np.random.randint(low=minjitter, high=maxjitter, size=nsubs)
-            for i in range(len(self.data)):
-                surrogates[i] = np.roll(self.data[i], jitters[i], axis=2)
+        # Applying Inverse Regularization
+        if verbose:
+            print('Applying Inverse Regularization...')
+        covariances_inverse, _ = self._apply_inverse_regularization(self.covariance_matrices, reg, verbose=verbose)
 
-        surrogates = [mne.EpochsArray(surr, self.infos[i], tmin=self.times[0], verbose=False) for i, surr in enumerate(surrogates)]
-        return surrogates
-    
+        # Find Eigenvalues
+        if verbose:
+            print('Solving Eigenvalues and Eigenvectors...')
+        self.eigenvalues, self.eigenvectors = self._apply_eigen_decomposition(covariances_inverse @ self.s_matrix, reg, verbose=verbose)
+
+        return # Eigenvals, Eigenvectors
+
     def _calculate_mean_trials_covariance(self, subject):
         """ Calculates the mean covariance matrix of the data.
 
@@ -806,14 +789,15 @@ class gTRCA():
         return projections, spatial_maps
 
     def _apply_components_normalization(self, data,
-                                        mode='group',
-                                        window='baseline'):
+                                        mode='subject',
+                                        window=None):
             """ Applies component normalization.
 
             Args:
                 data (np.ndarray): Data to apply normalization to.
-                mode (str, optional): Whether to apply normalization on 'group' or 'subject' level. Defaults to 'group'.
-                window (str, optional): Window to apply normalization on, in samples. Defaults to 'baseline'. If None, applies on whole data.
+                mode (str, optional): Whether to apply normalization on 'group' or 'subject' level. Defaults to 'subject'.
+                window (str, optional): Window to apply normalization on, in samples. Defaults to None. If None, applies on whole data.
+                    Can be 'baseline', None or list of two integers indicating which samples to use.
             
             Returns:
                 data (np.ndarray): Normalized data.
@@ -882,3 +866,55 @@ class gTRCA():
         # Print New Line on Complete
         if iteration == total: 
             print()
+
+    def _shift_data(self, mode='trial', minjitter=0, maxjitter='nsamples'):
+        """ Shifts data trial or subject-wise. Useful when running surrogates.
+
+        Args:
+            mode (str): 'trial' or 'subject'
+            minjitter (int): Minimum value of shift, in samples. Defaults to 0.
+            maxjitter (int or 'nsamples'): Maximum value of shift, in samples. Defaults to 'nsamples', using time length.
+        """
+
+        if self.data is None:
+            raise Exception('Please fit data to gTRCA before shifting.')
+        
+        # Setting max jitter
+        if maxjitter == 'nsamples':
+            maxjitter = len(self.times)
+        elif type(maxjitter)!=int:
+            raise Exception("Please use a int as maxjitter or default 'nsamples'")
+
+        # Trial-based Shifting
+        if mode == 'trial':
+            for i, sub in enumerate(self.data):
+                ntrials = sub.shape[0]
+                jitters = np.random.randint(low=minjitter, high=maxjitter, size=ntrials, dtype=int)
+                self.shifts[i] += jitters
+                rolled_sub = np.zeros_like(sub)
+                for k in range(ntrials):
+                    jitter=jitters[k]
+                    rolled_sub[k,:,:] = np.roll(sub[k,:,:], jitter, axis=1)
+                self.data[i] = rolled_sub
+    
+        # Subject-based Shifting
+        elif mode == 'subject':
+            nsubs = len(self.data)
+            jitters = np.random.randint(low=minjitter, high=maxjitter, size=nsubs, dtype=int)
+            for i, sub in enumerate(self.data):
+                rolled_sub = np.roll(sub, jitters[i], axis=2)
+                self.shifts[i] += np.ones(sub.shape[0], dtype=int)+jitters[i] # Since every trial was shifted by the same ammount
+                self.data[i] = rolled_sub
+        pass
+    
+    def _unshift_data(self):
+        """ Unshifts data
+        """
+        for i, sub in enumerate(self.data):
+            ntrials = sub.shape[0]
+            unshift_sub = np.zeros_like(sub)
+            for k in range(ntrials):
+                unshift_sub[k,:,:] = np.roll(sub[k,:,:], -self.shifts[i][k], axis=1)
+            self.data[i] = unshift_sub
+        self.shifts = [np.zeros(sub.shape[0], dtype=int) for sub in self.data]
+        pass
