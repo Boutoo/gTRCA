@@ -988,6 +988,3 @@ class gTRCA():
             self.data[i] = unshift_sub
         self.shifts = [np.zeros(sub.shape[0], dtype=int) for sub in self.data]
         pass
-
-
-# self.data = [self.data[i] for i in range(len(self.data)) if i not in subject]
