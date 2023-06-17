@@ -262,7 +262,36 @@ class gTRCA():
 
         # Alterations
         self.shifts = None
-        self.drop_subjects = None
+        self.drop_subjects = []
+    
+    def __repr__(self) -> str:
+        """Build string representation."""
+        class_name = self.__class__.__name__
+        repr_str = f'<{class_name} |'
+        if self.data is None:
+            repr_str += f'\n    Please fit data to gTRCA using .fit(data)'
+        else:
+            repr_str += f'\n    Number of Subjects : {len(self.data)}'
+            repr_str += f'\n    Times : {self.times[0]} - {self.times[-1]}'
+            repr_str += f'\n    Sampling Frequency : {1/(self.times[1]-self.times[0]):.2f} Hz'
+            repr_str += f'\n    Shifted : {np.any(np.concatenate(self.shifts)!=0)}'
+            repr_str += f'\n    Dropped Subjects: {self.drop_subjects}'
+            repr_str += f'\n>'
+        return repr_str
+    
+    def get_info(self):
+        """ Returns a dict with some information about the gTRCA object.
+        """
+        info = {
+            'n_subjects': len(self.data),
+            'n_channels': self.number_of_channels,
+            'n_trials': self.number_of_trials,
+            'times': self.times,
+            'sampling_frequency': 1/(self.times[1]-self.times[0]),
+            'shifted': np.any(np.concatenate(self.shifts)!=0),
+            'dropped_subjects': self.drop_subjects
+        }
+        return info
     
     def fit(self, data, onset=0,
                 standardize=True,
@@ -335,12 +364,17 @@ class gTRCA():
             projections (np.ndarray): Projected data. If average is True, shape is (n_subs, n_channels, n_times). Else, returns a list with each element representing a subject with sizes (n_trial, n_channel, n_times).
             spatial_maps (np.ndarray): Spatial maps. Shape is (n_subs, n_channels)
         """
+
+        drop_subs = lambda x: [x[i] for i in range(len(x)) if i not in self.drop_subjects]
+        data = drop_subs(self.data) # Removing dropped subjects
+
         if subject == 'all':
-            subjects = range(len(self.data))
+            subjects = range(len(data))
         else:
             subjects = [subject]
         
-        get_idx = lambda i: np.sum(self.number_of_channels[:i]) if i!=0 else 0
+        number_of_channels = drop_subs(self.number_of_channels) # Removing dropped subjects
+        get_idx = lambda i: np.sum(number_of_channels[:i]) if i!=0 else 0
 
         projections = []
         spatial_maps = []
@@ -349,7 +383,7 @@ class gTRCA():
             print(f'- Projecting Subject(s)...')
         for s in subjects:
             w = self.eigenvectors[get_idx(s):get_idx(s+1), component]
-            projection = [w.T @ self.data[s][trial,:,:] for trial in range(np.shape(self.data[s])[0])]
+            projection = [w.T @ data[s][trial,:,:] for trial in range(np.shape(data[s])[0])]
             projection = np.array(projection)
 
             # Creating Spatial Map
@@ -516,43 +550,76 @@ class gTRCA():
         idxs = np.triu_indices(np.shape(corrs)[0], k=1)
         return corrs[idxs], maps_corrs[idxs]
 
+    def drop(self, subject=None):
+        """ Drops subject(s) from the gTRCA object.
+        
+        Args:
+            subject (int or list or None): Subject(s) to drop. Defaults to None, which keep all subjects.
+        """
+        if subject == None:
+            subject = []
+        if type(subject) == int:
+            subject = [subject]
+        elif type(subject) != list:
+            raise Exception('Please provide a list of subjects to drop.')
+        self.drop_subjects = subject
+        self._calculate_matrices(reg=self.reg)
+        self._apply_gtrca(reg=self.reg)
+        print('Done running gTRCA! ✅')
+        print('Subjects dropped: ', subject)
+        print('Map available at .get_drop_map()')
+        pass
+
+    def get_drop_map(self):
+        # Returns the map of the dropped subjects
+        if self.drop_subjects == None:
+            raise Exception('No subjects were dropped.')
+        else:
+            original = range(len(self.data))
+            dropped = self.drop_subjects
+            drop_map = [i for i in original if i not in dropped]
+            return drop_map
+
     def _calculate_matrices(self, reg, verbose=True, progress_bar=True):
         trial_duration = len(self.times)
+
+        drop_subs = lambda x: [x[i] for i in range(len(x)) if i not in self.drop_subjects]
+        data = drop_subs(self.data) # Removing dropped subjects
 
         # Making Evokeds (Uα)
         if verbose:
             print('Making Evokeds...')
             if progress_bar:
-                self._print_progress_bar(0, len(self.data), prefix='U\u03B1:', suffix='Complete')
+                self._print_progress_bar(0, len(data), prefix='U\u03B1:', suffix='Complete')
 
         self.evokeds = []
-        for s, sub in enumerate(self.data):
+        for s, sub in enumerate(data):
             if verbose and progress_bar:
-                self._print_progress_bar(s+1, len(self.data), prefix='U\u03B1:', suffix='Complete')
+                self._print_progress_bar(s+1, len(data), prefix='U\u03B1:', suffix='Complete')
             self.evokeds.append(np.mean(sub, axis=0))
 
         # Calculating Mean Covariance Matrix (Vα)
         if verbose:
             print('Calculating Mean Covariance Matrix...')
             if progress_bar:
-                self._print_progress_bar(0, len(self.data), prefix='V\u03B1:', suffix='Complete')
+                self._print_progress_bar(0, len(data), prefix='V\u03B1:', suffix='Complete')
         
         self.mean_trials_covariances = []
-        for s, sub in enumerate(self.data):
+        for s, sub in enumerate(data):
             if verbose and progress_bar:
-                self._print_progress_bar(s+1, len(self.data), prefix='V\u03B1:', suffix='Complete')
+                self._print_progress_bar(s+1, len(data), prefix='V\u03B1:', suffix='Complete')
             self.mean_trials_covariances.append(self._calculate_mean_trials_covariance(sub))
 
         # Calculating Covariance Matrices (Qα)
         if verbose:
             print('Calculating Covariance Matrices...')
             if progress_bar:
-                self._print_progress_bar(0, len(self.data), prefix='Q\u03B1:', suffix='Complete')
+                self._print_progress_bar(0, len(data), prefix='Q\u03B1:', suffix='Complete')
         
         self.covariance_matrices = []
-        for s, sub in enumerate(self.data):
+        for s, sub in enumerate(data):
             if verbose and progress_bar:
-                self._print_progress_bar(s+1, len(self.data), prefix='Q\u03B1:', suffix='Complete')
+                self._print_progress_bar(s+1, len(data), prefix='Q\u03B1:', suffix='Complete')
             self.covariance_matrices.append(self._calculate_covariance_matrix(sub))
 
         # Calculating S Matrix
@@ -562,8 +629,8 @@ class gTRCA():
             self.evokeds,
             self.mean_trials_covariances,
             trial_duration,
-            self.number_of_trials,
-            self.number_of_channels,
+            drop_subs(self.number_of_trials), # Removing dropped subjects
+            drop_subs(self.number_of_channels), # Removing dropped subjects
             verbose=verbose,
             progress_bar=progress_bar
             )
@@ -764,7 +831,10 @@ class gTRCA():
         """
         # Trial by Trial
         # First Direction: First Peak of GMFP
-        get_idx = lambda i: np.sum(self.number_of_channels[:i]) if i!=0 else 0
+        drop_subs = lambda x: [x[i] for i in range(len(x)) if i not in self.drop_subjects]
+        number_of_channels = drop_subs(self.number_of_channels) # Removing dropped subjects
+
+        get_idx = lambda i: np.sum(number_of_channels[:i]) if i!=0 else 0
         get_evoked = lambda a: np.mean(a, axis=0)
         evokeds = [get_evoked(sub) for sub in projections]
 
@@ -919,17 +989,5 @@ class gTRCA():
         self.shifts = [np.zeros(sub.shape[0], dtype=int) for sub in self.data]
         pass
 
-    def __repr__(self) -> str:
-        """Build string representation."""
-        class_name = self.__class__.__name__
-        repr_str = f'<{class_name} |'
-        if self.data is None:
-            repr_str += f'\n    Please fit data to gTRCA using .fit(data)'
-        else:
-            repr_str += f'\n    Number of Subjects : {len(self.data)}'
-            repr_str += f'\n    Times : {self.times[0]} - {self.times[-1]}'
-            repr_str += f'\n    Sampling Frequency : {1/(self.times[1]-self.times[0]):.2f} Hz'
-            repr_str += f'\n    Shifted? : {np.any(np.concatenate(self.shifts)!=0)}'
-            repr_str += f'\n    Dropped Subjects: {self.drop_subjects}'
-            repr_str += f'\n>'
-        return repr_str
+
+# self.data = [self.data[i] for i in range(len(self.data)) if i not in subject]
