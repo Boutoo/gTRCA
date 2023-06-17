@@ -918,3 +918,18 @@ class gTRCA():
             self.data[i] = unshift_sub
         self.shifts = [np.zeros(sub.shape[0], dtype=int) for sub in self.data]
         pass
+
+    def __repr__(self) -> str:
+        """Build string representation."""
+        class_name = self.__class__.__name__
+        repr_str = f'<{class_name} |'
+        if self.data is None:
+            repr_str += f'\n    Please fit data to gTRCA using .fit(data)'
+        else:
+            repr_str += f'\n    Number of Subjects : {len(self.data)}'
+            repr_str += f'\n    Times : {self.times[0]} - {self.times[-1]}'
+            repr_str += f'\n    Sampling Frequency : {1/(self.times[1]-self.times[0]):.2f} Hz'
+            repr_str += f'\n    Shifted? : {np.any(np.concatenate(self.shifts)!=0)}'
+            repr_str += f'\n    Dropped Subjects: {self.drop_subjects}'
+            repr_str += f'\n>'
+        return repr_str
