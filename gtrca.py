@@ -544,7 +544,7 @@ class gTRCA():
             corrs (np.array): Correlations between subjects projections.
             maps_corrs (np.array): Correlations between subjects spatial maps.
         """
-        y, maps = self.get_projections(component)
+        y, maps = self.get_component(component)
         corrs = np.corrcoef(y[:, window[0]:window[1]])
         maps_corrs = np.corrcoef(maps)
         idxs = np.triu_indices(np.shape(corrs)[0], k=1)
