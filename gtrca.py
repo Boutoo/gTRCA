@@ -550,7 +550,7 @@ class gTRCA():
         idxs = np.triu_indices(np.shape(corrs)[0], k=1)
         return corrs[idxs], maps_corrs[idxs]
 
-    def drop(self, subject=None):
+    def drop(self, subject=None, verbose=True):
         """ Drops subject(s) from the gTRCA object.
         
         Args:
@@ -563,11 +563,12 @@ class gTRCA():
         elif type(subject) != list:
             raise Exception('Please provide a list of subjects to drop.')
         self.drop_subjects = subject
-        self._calculate_matrices(reg=self.reg)
-        self._apply_gtrca(reg=self.reg)
-        print('Done running gTRCA! ✅')
-        print('Subjects dropped: ', subject)
-        print('Map available at .get_drop_map()')
+        self._calculate_matrices(reg=self.reg, verbose=verbose)
+        self._apply_gtrca(reg=self.reg, verbose=verbose)
+        if verbose:
+            print('Done running gTRCA! ✅')
+            print('Subjects dropped: ', subject)
+            print('Map available at .get_drop_map()')
         pass
 
     def get_drop_map(self):
