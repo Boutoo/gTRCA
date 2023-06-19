@@ -526,7 +526,7 @@ class gTRCA():
         _ = self._apply_gtrca(reg=self.reg, verbose=False)
         return self.eigenvalues[0]
 
-    def reset(self):
+    def reset_shift(self):
         self._unshift_data()
         self._calculate_matrices(reg=self.reg)
         self._apply_gtrca(reg=self.reg)
