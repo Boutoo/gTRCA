@@ -435,6 +435,7 @@ class gTRCA():
 
     def project(self, new_subject, component=0,
                 average=True,
+                normalization_window=None,
                 reg=10**5,
                 verbose=False):
         """ Projects new subject data to the gTRCA space. """""" Projects new subject data to the gTRCA space.
@@ -447,11 +448,6 @@ class gTRCA():
         Returns:
 
         """
-        # Checking if Component was Correctly Orientated
-        if component not in self.components_with_fixed_orientation:
-            if verbose:
-                print(f'Warning: Component {component} was not oriented. Orientating now...')
-            _ = self.get_projections(component=component, subject='all', average=True, verbose=verbose)
 
         # New subject and new subject Evoked (X_{A+1})):
         new_subject = cp.deepcopy(new_subject.get_data())
@@ -462,24 +458,29 @@ class gTRCA():
         new_subject_cov_inv = self._apply_inverse_regularization([new_subject_cov], reg)[0]
 
         # New subject filter (w_{A+1}):
-        get_idx = lambda i: np.sum(self.number_of_channels[:i]) if i!=0 else 0
+        nchannels = [self.number_of_channels[i] for i in range(len(self.data)) if i not in self.drop_subjects]
+
+        get_idx = lambda i: np.sum(nchannels[:i]) if i!=0 else 0
         get_filters = lambda i: self.eigenvectors[get_idx(i):get_idx(i+1), component]
         
-        sum_of_filters_w = np.sum([(self.evokeds[i].T @ get_filters(i)) for i in range(len(self.data))], axis=0)
-        new_subject_w = (1/2*len(self.data)) * (new_subject_cov_inv @ np.mean(new_subject, axis=0)) @ sum_of_filters_w
+        sum_of_filters_w = np.sum([(self.evokeds[i].T @ get_filters(i)) for i in range(len(self.evokeds))], axis=0)
+        new_subject_w = (1/2*len(self.evokeds)) * (new_subject_cov_inv @ np.mean(new_subject, axis=0)) @ sum_of_filters_w
 
         # Projecting new subject (Y_{A+1}):
         new_subject_projection = [new_subject_w.T @ new_subject[trial, :, :] for trial in range(np.shape(new_subject)[0])]
         new_subject_projection = np.array(new_subject_projection)
         new_subject_spatial_map = new_subject_cov @ new_subject_w
 
-        # Applying Normalization
-        new_subject_average = np.mean(new_subject_projection, axis=0)
-        for i in range(len(new_subject_projection)):
-            new_subject_projection[i] = (new_subject_projection[i]-np.mean(new_subject_projection[i]))/np.std(new_subject_average)
+
+        if verbose:
+            print(f'- Applying Normalization...')
+        new_subject_projection = self._apply_components_normalization([new_subject_projection],
+                                                           mode='subject',
+                                                           window=normalization_window)
+        new_subject_projection = new_subject_projection[0]
 
         # Applying Reorientation
-        correlation = np.corrcoef(np.mean(new_subject_projection, axis=0), self.get_average_projection(component)[0])[0,1]
+        correlation = np.corrcoef(np.mean(new_subject_projection, axis=0), self.get_average_component(component)[0])[0,1]
         if correlation < 0:
             new_subject_projection *= -1
             new_subject_spatial_map *= -1
@@ -526,7 +527,7 @@ class gTRCA():
         _ = self._apply_gtrca(reg=self.reg, verbose=False)
         return self.eigenvalues[0]
 
-    def reset_shift(self):
+    def reset(self):
         self._unshift_data()
         self._calculate_matrices(reg=self.reg)
         self._apply_gtrca(reg=self.reg)
