@@ -319,7 +319,7 @@ class gTRCA():
                 raise Exception('Please use same time window and sampling frequency for all subjects')
 
         # Fetching data
-        data = [cp.deepcopy(sub.get_data()) for sub in data]
+        data = [sub.get_data(copy=True) for sub in data]
         self.number_of_trials = [np.shape(sub)[0] for sub in data]
         self.number_of_channels = [np.shape(sub)[1] for sub in data]
 
@@ -344,21 +344,23 @@ class gTRCA():
         return
 
     def get_component(self,
-                      component=0,
+                      component=[0],
                       subject='all',
                       average=True,
                       normalization_mode='subject',
                       normalization_window=None,
+                      orientation_mode='Time',
                       verbose=False):
         """ Returns projected data from subject.
 
         Args:
-            component (int): Component to return.
+            component (list, integers): Components to return.
             subject (int): Subject to return component from.
             average (bool): Whether to average the data across trials.
             normalization_mode (str): Normalization mode to apply. Defaults to 'subject'. Can be 'group', 'subject', or 'none'.
             normalization_window (str): Normalization window to apply. Defaults to None.
                 Can be 'baseline', None or list of two integers indicating which samples to use.
+            orientation_mode (str): Orientation mode to apply. Defaults to 'Time'. Can be 'Space'.
 
         Returns:
             projections (np.ndarray): Projected data. If average is True, shape is (n_subs, n_channels, n_times). Else, returns a list with each element representing a subject with sizes (n_trial, n_channel, n_times).
@@ -387,15 +389,18 @@ class gTRCA():
             projection = np.array(projection)
 
             # Creating Spatial Map
-            spatial_map = self.covariance_matrices[s] @ w
+            continuous_component = self._build_continuous(projection)
+            covcomponent = (1/np.shape(continuous_component)[1])*(continuous_component @ continuous_component.T)
+            covcomponent_inv,_=self._apply_inverse_regularization([covcomponent], 10**5, verbose=False)
+            spatial_map = self.covariance_matrices[s] @ w @ covcomponent_inv
 
             projections.append(projection)
-            spatial_maps.append(spatial_map)
+            spatial_maps.append(spatial_map.T)
 
         # Applying Reorientation based on 1. GMFP and 2. Average Group Component
         if verbose:
             print(f'- Checking Orientation...')
-        projections, spatial_maps = self._apply_components_orientation(projections, spatial_maps, component)
+        projections, spatial_maps = self._apply_components_orientation(projections, spatial_maps, component,mode=orientation_mode)
 
         if verbose:
             print(f'- Applying Normalization...')
@@ -408,15 +413,17 @@ class gTRCA():
 
         return projections, spatial_maps
 
-    def get_average_component(self, component=0,
+    def get_average_component(self, component=[0],
                                normalization_mode='subject',
                                normalization_window=None,
+                               orientation_mode='Time',
                                verbose=False):
         """ Calculates the Group Average Component and Spatial Map
             Args:
                 component (int, optional): What component to return. Defaults to 0.
                 normalization_mode (str, optional): Normalization mode to apply. Defaults to 'subject'. Can be 'group', 'subject', or 'none'.
                 normalization_window (str, optional): Normalization window to apply. Defaults to None. Can be 'baseline', None or list of two integers indicating which samples to use.
+                orientation_mode (str): Orientation mode to apply. Defaults to 'Time'. Can be 'Space'.
                 verbose (bool, optional): Whether to print out information. Defaults to False.
             Returns:
                 projection (np.ndarray): Group Average Projection.
@@ -427,6 +434,7 @@ class gTRCA():
                                                          average=True,
                                                          normalization_mode=normalization_mode,
                                                          normalization_window=normalization_window,
+                                                         orientation_mode=orientation_mode,
                                                          verbose=verbose
                                                          )
         projection = np.mean(projections, axis=0)
@@ -450,7 +458,7 @@ class gTRCA():
         """
 
         # New subject and new subject Evoked (X_{A+1})):
-        new_subject = cp.deepcopy(new_subject.get_data())
+        new_subject = new_subject.get_data(copy=True)
         new_subject = self._apply_standardization(new_subject)
 
         # New subject Covariance Matrix (Q_{A+1}):
@@ -477,7 +485,7 @@ class gTRCA():
         new_subject_projection = self._apply_components_normalization([new_subject_projection],
                                                            mode='subject',
                                                            window=normalization_window)
-        new_subject_projection = new_subject_projection[0]
+        new_subject_projection=new_subject_projection[0]
 
         # Applying Reorientation
         correlation = np.corrcoef(np.mean(new_subject_projection, axis=0), self.get_average_component(component)[0])[0,1]
@@ -533,25 +541,7 @@ class gTRCA():
         self._apply_gtrca(reg=self.reg)
         print('Done resetting changes! ✅')
 
-    def get_correlations(self, component=0,
-                         window=[None, None]):
-        """ Returns the time and spatial correlations for a given component and window, taking subjects pairwise.
-        
-        Args:
-            component (int, optional): Component to get the correlation for. Defaults to 0.
-            window (list, optional): Window to get the correlation for, in samples. Defaults to [None, None].
-
-        Returns:
-            corrs (np.array): Correlations between subjects projections.
-            maps_corrs (np.array): Correlations between subjects spatial maps.
-        """
-        y, maps = self.get_component(component)
-        corrs = np.corrcoef(y[:, window[0]:window[1]])
-        maps_corrs = np.corrcoef(maps)
-        idxs = np.triu_indices(np.shape(corrs)[0], k=1)
-        return corrs[idxs], maps_corrs[idxs]
-
-    def drop(self, subject=None, verbose=True):
+    def drop(self, subject=None,verbose=True):
         """ Drops subject(s) from the gTRCA object.
         
         Args:
@@ -564,8 +554,8 @@ class gTRCA():
         elif type(subject) != list:
             raise Exception('Please provide a list of subjects to drop.')
         self.drop_subjects = subject
-        self._calculate_matrices(reg=self.reg, verbose=verbose)
-        self._apply_gtrca(reg=self.reg, verbose=verbose)
+        self._calculate_matrices(reg=self.reg,verbose=verbose)
+        self._apply_gtrca(reg=self.reg,verbose=verbose)
         if verbose:
             print('Done running gTRCA! ✅')
             print('Subjects dropped: ', subject)
@@ -818,45 +808,57 @@ class gTRCA():
                                         projections,
                                         spatial_maps,
                                         component,
+                                        mode='Time',
                                         verbose=False):
-        """ This function reorientates the components and spatial maps to have ensure they are positively correlated.
+        """ This function reorientates the components and spatial maps based on temporal or spatial correlations.
 
         Args:
             projections (np.ndarray): Projections to be reorientated.
             spatial_maps (np.ndarray): Spatial maps to be reorientated.
-            component (int): Component to reorientate. Alterates saved eigenvectors.
+            component (list, integers): Components to reorientate. Alterates saved eigenvectors.
+            mode (string): 'Time' =  orient components by temporal distribution(wavefor); 'Space' = orient components by spatial distribution (topography)
             verbose (bool, optional): Whether to print out information. Defaults to False.
 
         Returns:
             projections (np.ndarray): Reorientated projections.
             spatial_maps (np.ndarray): Reorientated spatial maps.
         """
-        # Trial by Trial
-        # First Direction: First Peak of GMFP
+
         drop_subs = lambda x: [x[i] for i in range(len(x)) if i not in self.drop_subjects]
         number_of_channels = drop_subs(self.number_of_channels) # Removing dropped subjects
-
         get_idx = lambda i: np.sum(number_of_channels[:i]) if i!=0 else 0
         get_evoked = lambda a: np.mean(a, axis=0)
-        evokeds = [get_evoked(sub) for sub in projections]
 
-        # Calculate the global mean field power
-        gmfp = np.mean([abs(evk) for evk in evokeds], axis=0)
-        gmfp_peak, _ = scipy.signal.find_peaks(gmfp, distance=len(gmfp))
-        for i, evk in enumerate(evokeds):
-            if evk[gmfp_peak] < 0:
-                projections[i] *= -1
-                spatial_maps[i] *= -1
-                self.eigenvectors[get_idx(i):get_idx(i+1), component] *= -1
-    
-        # Second Correction: Correlation with Group Average
-        evokeds = [get_evoked(sub) for sub in projections]
-        mean_component = np.mean(evokeds, axis=0)
-        for i, evk in enumerate(evokeds):
-            if np.corrcoef(evk, mean_component)[0,1]<0:
-                projections[i] *= -1
-                spatial_maps[i] *= -1
-                self.eigenvectors[get_idx(i):get_idx(i+1), component] *= -1
+        # First correction: peak of mean power ('Time') or topography ('Space')
+        if mode=='Time':
+            mapa=[get_evoked(sub) for sub in projections]
+        elif mode=='Space':
+            mapa=spatial_maps
+        else:
+            raise Exception('Invalid orientation modality')
+        gmfp = np.mean([abs(x) for x in mapa], axis=0)
+        gmfp_peaks=[s[0] for s in [scipy.signal.find_peaks(s, distance=len(s)) for s in gmfp]]
+        for c in range(len(component)):
+            for i, x in enumerate(mapa):
+                if x[c,gmfp_peaks[c]] < 0:
+                    projections[i][:,c,:] *= -1
+                    spatial_maps[i][c,:] *= -1
+                    self.eigenvectors[get_idx(i):get_idx(i+1), c] *= -1
+
+        # Second Correction: Correlation ('Time') or ('Space') with Group Average calculated after first correction
+        if mode=='Time':      
+            mapa = [get_evoked(sub) for sub in projections]
+            mean_component = np.mean(mapa, axis=0)
+        else:
+            mapa=spatial_maps
+            mean_component = np.mean([topo for topo in mapa],axis=0)
+        for c in range(len(component)):
+            for i, x in enumerate(mapa):
+                if np.corrcoef(x[c,:], mean_component[c,:])[0,1]<0:
+                    print('Corrected: subj. '+str(i)+' / comp. '+str(c))
+                    projections[i][:,c,:] *= -1
+                    spatial_maps[i][c,:] *= -1
+                    self.eigenvectors[get_idx(i):get_idx(i+1), c] *= -1
 
         return projections, spatial_maps
 
@@ -882,17 +884,17 @@ class gTRCA():
                 
                 # Group Standard Deviation on chosen window
                 if window == 'baseline':
-                    group_average = group_average[:self.stimuli_onset]
+                    group_average = group_average[:,:self.stimuli_onset]
                 elif window is None:
                     pass
                 else:
-                    group_average = group_average[window[0]:window[1]]
+                    group_average = group_average[:,window[0]:window[1]]
 
                 # Normalization
-                group_std = np.std(group_average)
+                group_std = np.std(group_average,axis=1)
                 for i, projection in enumerate(data):
                     for j, trial in enumerate(projection):
-                        data[i][j,:] = (trial - np.mean(trial)) / group_std
+                        data[i][j,:,:] = [((s - np.mean(s)) / group_std[k]) for k,s in enumerate(trial)]
 
             elif mode == 'subject':
                 for i, projection in enumerate(data):
@@ -901,16 +903,16 @@ class gTRCA():
 
                     # Subject Standard Deviation on chosen window
                     if window == 'baseline':
-                        subject_average = subject_average[:self.stimuli_onset]
+                        subject_average = subject_average[:,:self.stimuli_onset]
                     elif window is None:
                         pass
                     else:
-                        subject_average = subject_average[window[0]:window[1]]
-                    subject_std = np.std(subject_average)
+                        subject_average = subject_average[:,window[0]:window[1]]
+                    subject_std = np.std(subject_average,axis=1)
                     
                     # Normalization
                     for j, trial in enumerate(projection):
-                        data[i][j,:] = (trial - np.mean(trial)) / subject_std
+                        data[i][j,:,:] = [((s - np.mean(s)) / subject_std[k]) for k,s in enumerate(trial)]                        
 
             # No normalization 
             elif mode == 'none':
