@@ -32,16 +32,17 @@ pip install mne scipy numpy matplotlib
 Here's an example of how to use gTRCA for Python:
 
 ```python
-from gtrca import gTRCA, create_surrogate
+from gtrca import gTRCA
+import mne
 
 #list_of_epochs = [mne.Epochs(...), ...]
 
 # Running gTRCA
-gtrca = gTRCA(list_of_epochs)
-gtrca.proj()
+gtrca = gTRCA()
+gtrca.fit(list_of_epochs)
 
 # Creating a single surrogate
-surrogate = create_surrogate(list_of_epochs, mode='trial')
+surrogate = gtrca.run_surrogate(mode='subject')
 ```
 
 ## License
@@ -49,5 +50,5 @@ This project is licensed under the MIT License.
 
 ## References
 * Tanaka, H. Group task-related component analysis (gTRCA): a multivariate method for inter-trial reproducibility and inter-subject similarity maximization for EEG data analysis. Sci Rep 10, 84 (2020). https://doi.org/10.1038/s41598-019-56962-2
-* Under Development: Couto, B.A.N, et al. Group Task-related Component Analysis on TMS-EEG data and the group level reproducibility of TMS evoked potentials. Coming up on 2023.
+* Under Development: Couto, B.A.N, et al. Extracting reproducible components from TMS-EEG recordings with Group Task-related Component Analysis. Coming up on 2024.
 * Couto, B.A.N. and Casali, A. G., Classification of Auditory Oddball Evoked Potentials using Group Task Related Component Analysis. Submitted to the 10th International Conference on Biomedical Engineering and Systems (ICBES 2023)
