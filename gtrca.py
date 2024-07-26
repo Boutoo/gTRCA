@@ -894,7 +894,7 @@ class gTRCA():
                 group_std = np.std(group_average,axis=1)
                 for i, projection in enumerate(data):
                     for j, trial in enumerate(projection):
-                        data[i][j,:,:] = [((s - np.mean(s)) / group_std[k]) for k,s in enumerate(trial)]
+                        data[i][j,:,:] = [((s - np.mean(s[:self.stimuli_onset])) / group_std[k]) for k,s in enumerate(trial)]
 
             elif mode == 'subject':
                 for i, projection in enumerate(data):
@@ -912,7 +912,7 @@ class gTRCA():
                     
                     # Normalization
                     for j, trial in enumerate(projection):
-                        data[i][j,:,:] = [((s - np.mean(s)) / subject_std[k]) for k,s in enumerate(trial)]                        
+                        data[i][j,:,:] = [((s - np.mean(s[:self.stimuli_onset])) / subject_std[k]) for k,s in enumerate(trial)]                        
 
             # No normalization 
             elif mode == 'none':
