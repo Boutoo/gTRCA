@@ -177,7 +177,7 @@ class gTRCA():
                 The peak of the mean component within the time interval will be oriented in the positive direction. 
                 Can be None (default) or list with two time instants indicating which samples to use (example: [0,0.1] ).
                 If the interval is set to None, the positive direction will correspond to the peak computed from the entire time series.
-            orientation_Spatialmaps (bool): wheter to apply spatial orientation to spatial maps when aligning components. Default to True. 
+            orientation_Spatialmaps (bool): whether to apply spatial orientation to spatial maps when aligning components. Default to True. 
 
         Returns:
             projections (np.ndarray): Projected data. If average is True, shape is (n_subs, n_components, n_times). Else, returns a list with each element representing a subject with sizes (n_trial, n_components, n_times).
