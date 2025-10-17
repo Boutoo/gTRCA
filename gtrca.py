@@ -160,6 +160,7 @@ class gTRCA():
                       normalization_window=None,
                       orientation=True,
                       orientation_window=None,
+                      orientation_Spatialmaps=True,
                       verbose=False):
         """ Returns projected data.
 
@@ -171,11 +172,12 @@ class gTRCA():
             normalization_mode (str): Normalization mode to apply. Defaults to 'subject'. Can be 'group', 'subject', or 'none'.
             normalization_window (str): Normalization window to apply. Defaults to None.
                 Can be 'baseline', None or list of two integers indicating which samples to use.
-            orientation (bool): whether to align projections (temporally) and spatial maps (spatially). Defaults to True.
-            orientation_window (list, time in seconds): Window to use when orienting components. 
+            orientation (bool): whether to align components. Defaults to True.
+            orientation_window (list, time in seconds): Window to use when orienting components temporally. 
                 The peak of the mean component within the time interval will be oriented in the positive direction. 
                 Can be None (default) or list with two time instants indicating which samples to use (example: [0,0.1] ).
                 If the interval is set to None, the positive direction will correspond to the peak computed from the entire time series.
+            orientation_Spatialmaps (bool): wheter to apply spatial orientation to spatial maps when aligning components. Default to True. 
 
         Returns:
             projections (np.ndarray): Projected data. If average is True, shape is (n_subs, n_components, n_times). Else, returns a list with each element representing a subject with sizes (n_trial, n_components, n_times).
@@ -197,7 +199,7 @@ class gTRCA():
                 window=None
             if verbose:
                 print(f'- Checking Orientation...')
-            projections,spatial_maps = self._apply_components_orientation(projections, spatial_maps,window=window)
+            projections,spatial_maps = self._apply_components_orientation(projections, spatial_maps,window=window,orientation_Projections=orientation,orientation_Spatialmaps=orientation_Spatialmaps)
 
         if average:
             projections = np.array([np.mean(proj, axis=0) for proj in projections])
@@ -626,6 +628,7 @@ class gTRCA():
                 for i, x in enumerate(mapa):
                     if np.corrcoef(x[c,:], mean_component[c,:])[0,1]<0:
                         projections[i][:,c,:] *= -1
+                        spatial_maps[i][c,:] *= -1
 
         #Spatial orientation:
         if orientation_Spatialmaps:
