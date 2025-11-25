@@ -13,6 +13,7 @@ Please refer to:
 
 - A `gTRCA()` class that accepts a list of `mne.Epochs` objects and returns a specified number of group-level reproducible components.
 - Several methods to manipulate gTRCA components, including the generation of surrogate datasets (via trial- or subject-based circular shifting). See *Couto et al. (2025)* for details.
+- Example of how to apply the gTRCA library using the dataset released alongside Couto et al. (2025), includes code to generate component waveforms and spatial maps (`callgtrca.py`).
 
 ---
 
