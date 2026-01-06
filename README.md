@@ -5,14 +5,14 @@ The **gTRCA for Python** project is an implementation of the Group Task-Related 
 This version of the gTRCA method has been applied to both **Auditory Evoked Potentials** and **TMS-EEG data** to investigate the group-level reproducibility of TMS-evoked potentials. The current implementation is designed to work with a list of `mne.Epochs` objects, a commonly used data structure for handling EEG data in Python.
 
 Please refer to:  
-**Couto et al. (2025)** – *Extracting Reproducible Components from Electroencephalographic Responses to Transcranial Magnetic Stimulation with Group Task-Related Component Analysis* (bioRxiv: https://www.biorxiv.org/content/10.1101/2025.06.02.657489v2)
+**Couto et al. (2026)** – *Extracting Reproducible Components from Electroencephalographic Responses to Transcranial Magnetic Stimulation with Group Task-Related Component Analysis*, Imaging Neuroscience, 4, 2026 (https://doi.org/10.1162/IMAG.a.1085)
 
 ---
 
 ## Features
 
 - A `gTRCA()` class that accepts a list of `mne.Epochs` objects and returns a specified number of group-level reproducible components.
-- Several methods to manipulate gTRCA components, including the generation of surrogate datasets (via trial- or subject-based circular shifting). See *Couto et al. (2025)* for details.
+- Several methods to manipulate gTRCA components, including the generation of surrogate datasets (via trial- or subject-based circular shifting). See *Couto et al. (2026)* for details.
 - Example of how to apply the gTRCA library using the dataset released alongside Couto et al. (2025), includiing code to generate and visualize component waveforms and spatial maps (`callgtrca.py`).
 
 ---
@@ -63,5 +63,5 @@ This project is licensed under the MIT License.
 
 ## References
 * Tanaka, H. Group task-related component analysis (gTRCA): a multivariate method for inter-trial reproducibility and inter-subject similarity maximization for EEG data analysis. Sci Rep 10, 84 (2020). https://doi.org/10.1038/s41598-019-56962-2
-* Couto, B.A.N, et al.  Extracting Reproducible Components from Electroencephalographic Responses to Transcranial Magnetic Stimulation with Group Task-Related Component Analysis.(2025). BioRxiv: https://www.biorxiv.org/content/10.1101/2025.06.02.657489v2
+* Couto, B.A.N, et al.  Extracting Reproducible Components from Electroencephalographic Responses to Transcranial Magnetic Stimulation with Group Task-Related Component Analysis, Imaging Neuroscience 4 (2026). https://doi.org/10.1162/IMAG.a.1085
 * Couto, B.A.N. and Casali, A. G., Classification of Auditory Oddball Evoked Potentials using Group Task Related Component Analysis. 10th International Conference on Biomedical Engineering and Systems (ICBES 2023)
